@@ -34,6 +34,9 @@ Desktop.ini
 *.log
 
 # Testing / Coverage
+/test/
+/test_RTOS/
+/data_collector/firmware/test/*.exe
 .pytest_cache/
 htmlcov/
 .coverage
