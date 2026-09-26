@@ -338,7 +338,7 @@
     <node id="board.clock.i3cclk.source" option="board.clock.i3cclk.source.disabled" />
     <node id="board.clock.i3cclk.div" option="board.clock.i3cclk.div.5" />
     <node id="board.clock.i3cclk.display" option="board.clock.i3cclk.display.value" />
-    <node id="board.clock.uck.source" option="board.clock.uck.source.disabled" />
+    <node id="board.clock.uck.source" option="board.clock.uck.source.pll2r" />
     <node id="board.clock.uck.div" option="board.clock.uck.div.10" />
     <node id="board.clock.uck.display" option="board.clock.uck.display.value" />
     <node id="board.clock.u60ck.source" option="board.clock.u60ck.source.pll2r" />
@@ -447,6 +447,14 @@
     </component>
     <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_sci_b_uart" variant="" vendor="Renesas" version="6.4.0">
       <description>SCI UART</description>
+      <originalPack>Renesas.RA.6.4.0.pack</originalPack>
+    </component>
+    <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_usb_basic" variant="" vendor="Renesas" version="6.4.0">
+      <description>USB Basic</description>
+      <originalPack>Renesas.RA.6.4.0.pack</originalPack>
+    </component>
+    <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_usb_pcdc" variant="" vendor="Renesas" version="6.4.0">
+      <description>USB Peripheral Communications Device Class</description>
       <originalPack>Renesas.RA.6.4.0.pack</originalPack>
     </component>
     <component apiversion="" class="HAL Drivers" condition="" group="all" subgroup="r_vin" variant="" vendor="Renesas" version="6.4.0">
@@ -1995,6 +2003,26 @@
       <property id="module.driver.mipi_phy.t_hs_exit_ns" value="100" />
       <property id="module.driver.mipi_phy.t_hs_exit_ui" value="0" />
     </module>
+    <module id="module.driver.pcdc_on_usb.1215554019">
+      <property id="module.driver.pcdc.name" value="g_pcdc0" />
+    </module>
+    <module id="module.driver.basic_on_usb.711535991">
+      <property id="module.driver.basic.name" value="g_basic0" />
+      <property id="module.driver.usb_basic.usb_mode" value="module.driver.usb_basic.usb_mode.device" />
+      <property id="module.driver.usb_basic.usb_speed" value="module.driver.usb_basic.usb_speed.hs" />
+      <property id="module.driver.usb_basic.usb_modulenumber" value="module.driver.usb_basic.usb_modulenumber.0" />
+      <property id="module.driver.usb_basic.p_usb_reg" value="g_usb_descriptor" />
+      <property id="module.driver.usb_basic.complience_cb" value="NULL" />
+      <property id="module.driver.usb_basic.ipl" value="board.icu.common.irq.priority12" />
+      <property id="module.driver.usb_basic.ipl_r" value="board.icu.common.irq.priority12" />
+      <property id="module.driver.usb_basic.ipl_d0" value="board.icu.common.irq.priority12" />
+      <property id="module.driver.usb_basic.ipl_d1" value="board.icu.common.irq.priority12" />
+      <property id="module.driver.usb_basic.hsipl" value="board.icu.common.irq.priority12" />
+      <property id="module.driver.usb_basic.hsipl_d0" value="board.icu.common.irq.priority12" />
+      <property id="module.driver.usb_basic.hsipl_d1" value="board.icu.common.irq.priority12" />
+      <property id="module.driver.usb_basic.rtos_callback" value="collector_usb_callback" />
+      <property id="module.driver.usb_basic.other_context" value="NULL" />
+    </module>
     <object id="rtos.awsfreertos.object.flags.1618610196">
       <property id="rtos.awsfreertos.object.flags.symbol" value="g_update_console_event" />
       <property id="rtos.awsfreertos.object.flags.allocation" value="rtos.awsfreertos.object.flags.allocation.static" />
@@ -2028,6 +2056,9 @@
       <stack module="module.driver.external_irq_on_icu.1673026346" />
       <stack module="module.driver.timer_on_gpt.1233875661" />
       <stack module="module.driver.timer_on_gpt.2091558907" />
+      <stack module="module.driver.pcdc_on_usb.1215554019">
+        <stack module="module.driver.basic_on_usb.711535991" requires="module.driver.basic_on_usb.requires.basic" />
+      </stack>
     </context>
     <context id="rtos.awsfreertos.thread.1356536347">
       <property id="_symbol" value="display_thread" />

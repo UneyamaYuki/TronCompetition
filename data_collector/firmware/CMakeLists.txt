@@ -37,7 +37,23 @@ project(data_collector_fw
 	VERSION 1.0.0
 	LANGUAGES C CXX ASM)
 
-option(COLLECTOR_FSP_IO_ENABLED "Enable generated FSP r_jpeg and USB PCDC instances" OFF)
+option(COLLECTOR_FSP_IO_ENABLED "Enable generated FSP USB PCDC instance" ON)
+
+if(COLLECTOR_FSP_IO_ENABLED)
+	file(READ "${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/common_data.h" COLLECTOR_GENERATED_COMMON_DATA)
+	foreach(REQUIRED_TEXT
+		"g_basic0"
+		"#define VIN_CFG_IMAGE_STRIDE (640)"
+		"#define VIN_CFG_BYTES_PER_LINE (1280)"
+		"#define VIN_BYTES_PER_FRAME (VIN_CFG_BYTES_PER_LINE * 480)")
+		string(FIND "${COLLECTOR_GENERATED_COMMON_DATA}" "${REQUIRED_TEXT}" REQUIRED_TEXT_OFFSET)
+		if(REQUIRED_TEXT_OFFSET EQUAL -1)
+			message(FATAL_ERROR
+				"FSP generated files are not ready for camera collection: missing '${REQUIRED_TEXT}'. "
+				"Open configuration.xml with e2 studio 2026-01/FSP 6.4, add USB PCDC, then regenerate the project.")
+		endif()
+	endforeach()
+endif()
 
 set(CMAKE_CROSSCOMPILING "TRUE")
 set(CMAKE_EXPORT_COMPILE_COMMANDS "TRUE")

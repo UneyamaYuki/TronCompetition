@@ -5,7 +5,7 @@
 _Static_assert(sizeof(collector_record_header_t) == COLLECTOR_PROTOCOL_HEADER_SIZE,
                "collector protocol header layout changed");
 _Static_assert(sizeof(collector_frame_metadata_t) == 16U,
-               "JPEG payload must remain 8-byte aligned");
+               "raw frame metadata must remain 8-byte aligned");
 
 uint32_t collector_crc32(const void * p_data, size_t size)
 {

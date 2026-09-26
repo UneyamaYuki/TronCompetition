@@ -14,7 +14,6 @@
 #define COLLECTOR_FRAME_WIDTH          (640U)
 #define COLLECTOR_FRAME_HEIGHT         (480U)
 #define COLLECTOR_FRAME_BYTES          (COLLECTOR_FRAME_WIDTH * COLLECTOR_FRAME_HEIGHT * 2U)
-#define COLLECTOR_JPEG_BUFFER_SIZE     (COLLECTOR_FRAME_BYTES)
 #define COLLECTOR_EVENT_QUEUE_LENGTH   (8U)
 #define COLLECTOR_TASK_STACK_WORDS     (2048U)
 #define COLLECTOR_TASK_PRIORITY        (configMAX_PRIORITIES - 3U)
@@ -40,7 +39,10 @@ static collector_context_t s_context;
 static TickType_t          s_last_sample_tick;
 static TickType_t          s_last_toggle_tick;
 static TickType_t          s_last_marker_tick;
-static uint8_t             s_jpeg_buffer[COLLECTOR_JPEG_BUFFER_SIZE + sizeof(collector_frame_metadata_t)]
+static volatile bool       s_frame_event_pending;
+static uint8_t             s_frame_buffer[COLLECTOR_FRAME_BYTES]
+    BSP_PLACE_IN_SECTION(".sdram_noinit") BSP_ALIGN_VARIABLE(64);
+static uint8_t             s_raw_buffer[COLLECTOR_FRAME_BYTES + sizeof(collector_frame_metadata_t)]
     BSP_PLACE_IN_SECTION(".sdram_noinit") BSP_ALIGN_VARIABLE(64);
 
 static void collector_task(void * p_context);
@@ -95,9 +97,21 @@ static void event_from_isr(collector_event_type_t type, void * p_frame)
         return;
     }
 
+    if ((type == COLLECTOR_EVENT_FRAME) && s_frame_event_pending)
+    {
+        return;
+    }
+
     collector_event_t event = {.type = type, .p_frame = p_frame, .tick = xTaskGetTickCountFromISR()};
     BaseType_t task_woken = pdFALSE;
-    if (xQueueSendFromISR(s_event_queue, &event, &task_woken) != pdPASS)
+    if (xQueueSendFromISR(s_event_queue, &event, &task_woken) == pdPASS)
+    {
+        if (type == COLLECTOR_EVENT_FRAME)
+        {
+            s_frame_event_pending = true;
+        }
+    }
+    else if (type == COLLECTOR_EVENT_FRAME)
     {
         s_context.statistics.dropped_frames++;
     }
@@ -150,6 +164,7 @@ static void collector_task(void * p_context)
         else if (event.type == COLLECTOR_EVENT_FRAME)
         {
             frame_process(&event);
+            s_frame_event_pending = false;
         }
 
         collector_platform_status_set((uint32_t) s_context.state);
@@ -168,7 +183,7 @@ static void session_start(TickType_t tick)
     s_last_sample_tick = tick - pdMS_TO_TICKS(COLLECTOR_SAMPLE_PERIOD_MS);
     char payload[96];
     int length = snprintf(payload, sizeof(payload),
-                          "{\"width\":640,\"height\":480,\"fps\":5,\"format\":\"JPEG\",\"quality\":85}");
+                          "{\"width\":640,\"height\":480,\"fps\":5,\"format\":\"YUYV422\",\"jpeg_on_pc\":true}");
     if (length > 0)
     {
         (void) record_write(COLLECTOR_RECORD_SESSION_START, 0U, payload, (uint32_t) length);
@@ -193,43 +208,24 @@ static void frame_process(const collector_event_t * p_event)
 
     s_last_sample_tick = p_event->tick;
     s_context.statistics.captured_frames++;
+    memcpy(s_frame_buffer, p_event->p_frame, sizeof(s_frame_buffer));
 
-    size_t jpeg_size = 0U;
-    uint32_t encode_time_us = 0U;
-    collector_frame_metadata_t * p_metadata = (collector_frame_metadata_t *) s_jpeg_buffer;
-    uint8_t * p_jpeg = s_jpeg_buffer + sizeof(*p_metadata);
-    size_t jpeg_capacity = sizeof(s_jpeg_buffer) - sizeof(*p_metadata);
-    if (!collector_platform_jpeg_encode(p_event->p_frame, COLLECTOR_FRAME_BYTES,
-                                        p_jpeg, jpeg_capacity,
-                                        &jpeg_size, &encode_time_us))
-    {
-        s_context.statistics.dropped_frames++;
-        error_write(collector_state_timestamp(&s_context, tick_to_ms(p_event->tick)), "jpeg_encode_failed");
-        return;
-    }
-
-    if ((jpeg_size < 4U) || (p_jpeg[0] != 0xFFU) || (p_jpeg[1] != 0xD8U) ||
-        (p_jpeg[jpeg_size - 2U] != 0xFFU) || (p_jpeg[jpeg_size - 1U] != 0xD9U))
-    {
-        s_context.statistics.dropped_frames++;
-        error_write(collector_state_timestamp(&s_context, tick_to_ms(p_event->tick)), "invalid_jpeg_markers");
-        return;
-    }
-
-    s_context.statistics.encoded_frames++;
+    collector_frame_metadata_t * p_metadata = (collector_frame_metadata_t *) s_raw_buffer;
+    memcpy(s_raw_buffer + sizeof(*p_metadata), s_frame_buffer, sizeof(s_frame_buffer));
     *p_metadata = (collector_frame_metadata_t)
     {
         .width = COLLECTOR_FRAME_WIDTH,
         .height = COLLECTOR_FRAME_HEIGHT,
-        .quality = 85U,
+        .quality = 0U,
         .reserved = {0U, 0U, 0U},
-        .encode_time_us = encode_time_us,
+        .encode_time_us = 0U,
         .reserved2 = 0U
     };
     uint32_t timestamp = collector_state_timestamp(&s_context, tick_to_ms(p_event->tick));
-    uint32_t packet_size = (uint32_t) (sizeof(*p_metadata) + jpeg_size);
-    if (record_write(COLLECTOR_RECORD_JPEG_FRAME, timestamp, s_jpeg_buffer, packet_size))
+    uint32_t packet_size = (uint32_t) sizeof(s_raw_buffer);
+    if (record_write(COLLECTOR_RECORD_RAW_FRAME, timestamp, s_raw_buffer, packet_size))
     {
+        s_context.statistics.encoded_frames++;
         s_context.statistics.transmitted_frames++;
     }
     else
