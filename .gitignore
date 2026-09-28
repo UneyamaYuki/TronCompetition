@@ -17,6 +17,7 @@ env/
 # IDE / Editor
 .vscode/
 .idea/
+.metadata/
 *.swp
 *.swo
 *~
@@ -34,7 +35,18 @@ Desktop.ini
 *.log
 
 # Testing / Coverage
+test/
+test_RTOS/
 .pytest_cache/
 htmlcov/
 .coverage
 .coverage.*
+
+# .github
+.github/
+
+# build environment
+data_collector/data_collector_fsp/
+
+# Data files
+dataset/
