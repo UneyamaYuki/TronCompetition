@@ -27,7 +27,9 @@
 
 #include "bsp_api.h"
 #include "board_hw_cfg.h"
+#include "board_cfg_switch.h"
 #include "ov5640_cfg.h"
+#include "bsp_pin_cfg.h"
 
 #include "collector_app.h"
 #include "collector_platform.h"
@@ -61,8 +63,8 @@
  * 
  *********************************************************************************************************************/
 
-#define IMAGE_WIDTH         (640U)
-#define IMAGE_HEIGHT        (480U)
+#define IMAGE_WIDTH         (1024U)
+#define IMAGE_HEIGHT        (600U)
 #define OV5640_FLIP_IMAGE   (0)
 #define OV5640_MIRROR_IMAGE (0)
 
@@ -74,6 +76,16 @@
 
 /* Input ns, output ns */
 #define MIPI_DPHYTIM_NS_TO_PCLKA(ns)  ((uint8_t)(((float)(ns) / (float)g_pclka_period_ns) - 1.0f))
+
+static volatile uint32_t s_mipi_lane_error_mask[2];
+static volatile uint32_t s_mipi_virtual_channel_error_mask;
+static volatile uint32_t s_mipi_fifo_error_mask;
+static volatile uint32_t s_vin_first_frame_status;
+static volatile uint32_t s_vin_first_frame_buffer;
+static volatile uint32_t s_vin_first_frame_pending;
+
+static void mipi_diagnostics_poll(void);
+static void vin_diagnostics_poll(void);
 
 /**********************************************************************************************************************
  OV5640 MIPI Image Configuration
@@ -310,7 +322,13 @@ void    OV5640_DspMIPIModeSettings(void);
  *********************************************************************************************************************/
 void camera_thread_entry(void *pvParameters)
 {
+    char_t debug_message[96];
+    fsp_err_t fsp_error;
+    uint8_t camera_error;
+
     FSP_PARAMETER_NOT_USED (pvParameters);
+
+    (void) print_to_console("DC: camera_thread start\r\n");
 
     xw = IMAGE_WIDTH;
     xh = IMAGE_HEIGHT;
@@ -318,14 +336,35 @@ void camera_thread_entry(void *pvParameters)
     s_camera_detected = false;
     camera_state_determined = false;
 
-    if (common_init() != FSP_SUCCESS)
+    fsp_error = common_init();
+    (void) snprintf(debug_message, sizeof(debug_message), "DC: common_init=%ld\r\n", (long) fsp_error);
+    (void) print_to_console(debug_message);
+    if (fsp_error != FSP_SUCCESS)
     {
         collector_platform_status_set((uint32_t) COLLECTOR_STATE_ERROR);
         vTaskDelete(NULL);
     }
 
+    bool_t usb_fs_role_on = false;
+    bool_t usb_hs_role_on = false;
+    bsp_io_level_t usb_hs_vbus = BSP_IO_LEVEL_LOW;
+    fsp_err_t usb_fs_role_error = board_cfg_switch_func_read(SW4_USBFS_ROLE_SW, &usb_fs_role_on);
+    fsp_err_t usb_hs_role_error = board_cfg_switch_func_read(SW4_USBHS_ROLE_SW, &usb_hs_role_on);
+    fsp_err_t usb_hs_vbus_error = R_IOPORT_PinRead(g_ioport.p_ctrl, USB_HS_VBUS, &usb_hs_vbus);
+    (void) snprintf(debug_message, sizeof(debug_message),
+                    "DC: USB role FS=%u err=%ld HS=%u err=%ld VBUS=%u err=%ld\r\n",
+                    (unsigned int) usb_fs_role_on, (long) usb_fs_role_error,
+                    (unsigned int) usb_hs_role_on, (long) usb_hs_role_error,
+                    (unsigned int) usb_hs_vbus, (long) usb_hs_vbus_error);
+    (void) print_to_console(debug_message);
+
+    (void) collector_app_start();
+    (void) print_to_console("DC: collector_app_start requested\r\n");
+
     /* Open video input (VIN) driver */
-    R_VIN_Open(&g_vin0_ctrl, &g_vin0_cfg);
+    fsp_error = R_VIN_Open(&g_vin0_ctrl, &g_vin0_cfg);
+    (void) snprintf(debug_message, sizeof(debug_message), "DC: R_VIN_Open=%ld\r\n", (long) fsp_error);
+    (void) print_to_console(debug_message);
 	
     /* Init globals */
     memset(fb_foreground, 0x55, sizeof(fb_foreground));
@@ -340,6 +379,7 @@ void camera_thread_entry(void *pvParameters)
 
     if(g_board_i2c_master_ctrl.open == 0)
     {
+        (void) print_to_console("DC: board I2C is not open\r\n");
         __BKPT(0);
     }
     else
@@ -348,7 +388,15 @@ void camera_thread_entry(void *pvParameters)
     }
 
     /** Setup The Camera **/
-    ov5640_init();
+    (void) print_to_console("DC: ov5640_init begin\r\n");
+    camera_error = ov5640_init();
+    (void) snprintf(debug_message, sizeof(debug_message), "DC: ov5640_init=%u\r\n", camera_error);
+    (void) print_to_console(debug_message);
+    if (camera_error != 0U)
+    {
+        collector_platform_status_set((uint32_t) COLLECTOR_STATE_ERROR);
+        vTaskDelete(NULL);
+    }
     ov5640_stream_off();
     ov5640_write_reg(0x3008, 0x42); // software power down
 
@@ -361,11 +409,12 @@ void camera_thread_entry(void *pvParameters)
 
     s_camera_detected = true;
     camera_state_determined = true;
-    (void) collector_app_start();
     while (1)
     {
         capture_status_t capture_status;
         R_VIN_StatusGet(&g_vin0_ctrl, &capture_status);
+        vin_diagnostics_poll();
+        mipi_diagnostics_poll();
         if(capture_status.state == CAPTURE_STATE_IN_PROGRESS)
         {
             // TODO Add processing outside capture here
@@ -454,6 +503,8 @@ void ov5640_stream_off(void)
 uint8_t ov5640_init(void)
 {
     uint8_t reg_val = 0xFF;
+    uint8_t pid_high;
+    uint8_t pid_low;
 
     /* Initialize GPT module */
     R_GPT_Open(&g_timer_camera_xclk_ctrl, &g_timer_camera_xclk_cfg);
@@ -474,10 +525,14 @@ uint8_t ov5640_init(void)
     delay_ms(20); // Register access permitted after 20 ms
 
     /* Check Camera is connected */
-    reg_val = ov5640_read_reg(REG_PIDH); // PIDH  PID MSB
+    pid_high = ov5640_read_reg(REG_PIDH); // PIDH  PID MSB
 
     /* Discard first read in reg_val */
-    reg_val = ov5640_read_reg(REG_PIDL); // PIDH  PID LSB REV2c - 0x4C, REV2a = 0x41, REV1a=0x40 otherwise error
+    pid_low = ov5640_read_reg(REG_PIDL); // PIDH  PID LSB REV2c - 0x4C, REV2a = 0x41, REV1a=0x40 otherwise error
+    char_t debug_message[64];
+    (void) snprintf(debug_message, sizeof(debug_message), "DC: OV5640 PID=%02X%02X\r\n", pid_high, pid_low);
+    (void) print_to_console(debug_message);
+    reg_val = pid_low;
 
     if ((reg_val == 0x40) || (reg_val == 0x41) || (reg_val == 0x4C))
     {
@@ -489,11 +544,7 @@ uint8_t ov5640_init(void)
         s_camera_detected = false;
         camera_state_determined = true;
 
-        /* Halt the camera setup and block the thread */
-        while(1)
-        {
-            vTaskDelay(100);
-        }
+        return 1U;
     }
 
     /* Reset using Software registers */
@@ -608,12 +659,12 @@ uint8_t ov5640_init(void)
     ov5640_write_reg(0x302e, 0x08);
 uint8_t mipi_bits = 8;            // 0x3034 Bit[3:0]: MIPI bit mode (8 or 10)
 #if INPUT_FORMAT_YUV422_8_BIT
-    ov5640_write_reg(0x4300, 0x32); // YUV 422, YUYV
+    ov5640_write_reg(0x4300, 0x32); // YUV 422 input; VIN color conversion outputs RGB565 in memory
 #elif INPUT_FORMAT_YUV422_10_BIT
     #error Untested Configuration
     enum ov5640_format_t format = ov5640_yuv422;
     uint8_t mipi_bits = 10;            // 0x3034 Bit[3:0]: MIPI bit mode (8 or 10)
-    ov5640_write_reg(0x4300, 0x32); // YUV 422, YUYV
+    ov5640_write_reg(0x4300, 0x32); // YUV 422 input; VIN color conversion outputs RGB565 in memory
 #elif INPUT_FORMAT_RAW8
      #error Untested Configuration
      ov5640_write_reg(0x4300, 0xF8); // RAW
@@ -828,46 +879,16 @@ uint8_t mipi_bits = 8;            // 0x3034 Bit[3:0]: MIPI bit mode (8 or 10)
     ov5640_write_reg(0x3814, 0x31); // X inc
     ov5640_write_reg(0x3815, 0x31); // Y inc
     ov5640_write_reg(0x3803, 0x04); // VS
-    const float sensor_max_x = 2642;
-    const float sensor_max_y = 1952;
-    const float default_ratio = sensor_max_x / sensor_max_y;
-    float x_y_ratio = (IMAGE_WIDTH / (float)IMAGE_HEIGHT);
-    assert(x_y_ratio > 1); // cropped calculations fail if image is taller than it is wide
-    /* Scale According to ratio - keeping resolution as large as possible
-     * x/y = ratio
-     * x = ratio * y
-     * y = x/ratio */
-
-#define CROP_SENSOR_Y (190)
-#define CROP_SENSOR_X ((default_ratio) * CROP_SENSOR_Y)
-    uint16_t sensor_cropped_x = (uint16_t)((sensor_max_y-CROP_SENSOR_X) * (x_y_ratio / default_ratio));
-    uint16_t sensor_cropped_y = (uint16_t)((sensor_max_x-CROP_SENSOR_Y) / x_y_ratio);
-
-    uint16_t cropped_pixels_x = (uint16_t)sensor_max_x - sensor_cropped_x;
-    uint16_t cropped_pixels_y = (uint16_t)sensor_max_y - sensor_cropped_y;
-    uint16_t sensor_x_start = cropped_pixels_x / 2;
-    uint16_t sensor_x_end = (uint16_t)(sensor_max_x - (cropped_pixels_x / 2) - 1); // Setting is one-indexed
-    uint16_t sensor_y_start = 4 + cropped_pixels_y / 2;
-    uint16_t sensor_y_end = (uint16_t)(sensor_max_y - (cropped_pixels_y / 2) - 1); // Setting is one-indexed
-    ov5640_write_reg(0x3800, (uint8_t)(sensor_x_start>>8)); // HS
-    ov5640_write_reg(0x3801, (uint8_t)sensor_x_start); // HS
-    ov5640_write_reg(0x3802, (uint8_t)(sensor_y_start>>8)); // VS
-    ov5640_write_reg(0x3803, (uint8_t)sensor_y_start); // VS
-    ov5640_write_reg(0x3804, (uint8_t)(sensor_x_end>>8)); // HW
-    ov5640_write_reg(0x3805, (uint8_t)sensor_x_end);      // HW -- Full Resolution: 2624
-    ov5640_write_reg(0x3806, (uint8_t)(sensor_y_end>>8)); // VW
-    ov5640_write_reg(0x3807, (uint8_t)sensor_y_end);      // VW -- Full Resolution: 1952 (1.344 Ratio)
-
     ov5640_write_reg(0x3808, (uint8_t)(IMAGE_WIDTH>>8));  // DVPHO - Horizontal
     ov5640_write_reg(0x3809, (uint8_t)IMAGE_WIDTH);       // DVPHO - Horizontal
     ov5640_write_reg(0x380a, (uint8_t)(IMAGE_HEIGHT>>8)); // DVPVO - Vertical
     ov5640_write_reg(0x380b, (uint8_t)IMAGE_HEIGHT);      // DVPVO - Vertical
 
-    /* The subtraction here is from the 'scanned' area, to increase FPS */
-    ov5640_write_reg(0x380c, (uint8_t)(((uint32_t)(sensor_cropped_x-93))>>8)); // HTS
-    ov5640_write_reg(0x380d, (uint8_t)((uint32_t)(sensor_cropped_x-93)));      // HTS
-    ov5640_write_reg(0x380e, (uint8_t)(((uint32_t)(sensor_cropped_y-714))>>8)); // VTS
-    ov5640_write_reg(0x380f, (uint8_t)((uint32_t)(sensor_cropped_y-714))); // VTS
+    /* Match the official 60 fps timing calculation at the 96 MHz pixel-clock limit. */
+    ov5640_write_reg(0x380c, 0x05); // HTS = 1461
+    ov5640_write_reg(0x380d, 0xb5);
+    ov5640_write_reg(0x380e, 0x04); // VTS = 1095
+    ov5640_write_reg(0x380f, 0x47);
     ov5640_write_reg(0x3813, 0x06); // V offset
     ov5640_write_reg(0x3618, 0x00);
     ov5640_write_reg(0x3612, 0x29);
@@ -915,6 +936,12 @@ void vin0_callback (capture_callback_args_t * p_args)
         {
             if (interrupt_status.bits.frame_complete)
             {
+                if (s_vin_first_frame_pending == 0U)
+                {
+                    s_vin_first_frame_status = p_args->event_status;
+                    s_vin_first_frame_buffer = (uint32_t) (uintptr_t) p_args->p_buffer;
+                    s_vin_first_frame_pending = 1U;
+                }
                 collector_app_frame_from_isr(p_args->p_buffer);
             }
             break;
@@ -951,40 +978,48 @@ void mipi_csi0_callback (mipi_csi_callback_args_t * p_args)
         {
             mipi_csi_data_lane_status_t data = p_args->event_data.data_lane_status;
             uint8_t lane_idx = p_args->event_idx;
-            FSP_PARAMETER_NOT_USED(data);
-            FSP_PARAMETER_NOT_USED(lane_idx);
+            if ((lane_idx < 2U) && (data.bits.err_sot_hs || data.bits.err_sot_sync ||
+                                    data.bits.err_control || data.bits.err_escape))
+            {
+                s_mipi_lane_error_mask[lane_idx] |= data.mask;
+            }
             break;
         }
 
         case MIPI_CSI_EVENT_FRAME_DATA:
         {
-            mipi_csi_data_lane_status_t data = p_args->event_data.data_lane_status;
+            mipi_csi_receive_status_t data = p_args->event_data.receive_status;
             FSP_PARAMETER_NOT_USED(data);
             break;
         }
 
         case MIPI_CSI_EVENT_POWER:
         {
-            mipi_csi_data_lane_status_t data = p_args->event_data.data_lane_status;
+            mipi_csi_power_status_t data = p_args->event_data.power_status;
             FSP_PARAMETER_NOT_USED(data);
             break;
         }
 
         case MIPI_CSI_EVENT_SHORT_PACKET_FIFO:
         {
-            mipi_csi_data_lane_status_t data = p_args->event_data.data_lane_status;
-            FSP_PARAMETER_NOT_USED(data);
+            mipi_csi_short_packet_fifo_status_t data = p_args->event_data.fifo_status;
+            if (data.bits.overflow)
+            {
+                s_mipi_fifo_error_mask |= data.mask;
+            }
             break;
         }
 
         case MIPI_CSI_EVENT_VIRTUAL_CHANNEL:
         {
-            mipi_csi_data_lane_status_t data = p_args->event_data.data_lane_status;
+            mipi_csi_virtual_channel_status_t data = p_args->event_data.virtual_channel_status;
             uint8_t channel_idx = p_args->event_idx;
             FSP_PARAMETER_NOT_USED(channel_idx);
-            if(data.bits.err_control || data.bits.err_escape)
+            if (data.bits.malformed || data.bits.err_ecc_2_bit || data.bits.err_crc ||
+                data.bits.err_id || data.bits.err_word_count || data.bits.err_frame_sync ||
+                data.bits.err_frame_data || data.bits.short_packet_overflow)
             {
-                ;
+                s_mipi_virtual_channel_error_mask |= data.mask;
             }
             break;
         }
@@ -996,6 +1031,55 @@ void mipi_csi0_callback (mipi_csi_callback_args_t * p_args)
 /**********************************************************************************************************************
  End of function mipi_csi0_callback
  *********************************************************************************************************************/
+
+static void mipi_diagnostics_poll(void)
+{
+    static uint32_t reported_lane_error_mask[2];
+    static uint32_t reported_virtual_channel_error_mask;
+    static uint32_t reported_fifo_error_mask;
+    uint32_t lane_error_mask[2] = {s_mipi_lane_error_mask[0], s_mipi_lane_error_mask[1]};
+    uint32_t virtual_channel_error_mask = s_mipi_virtual_channel_error_mask;
+    uint32_t fifo_error_mask = s_mipi_fifo_error_mask;
+
+    if ((lane_error_mask[0] == reported_lane_error_mask[0]) &&
+        (lane_error_mask[1] == reported_lane_error_mask[1]) &&
+        (virtual_channel_error_mask == reported_virtual_channel_error_mask) &&
+        (fifo_error_mask == reported_fifo_error_mask))
+    {
+        return;
+    }
+
+    char_t message[128];
+    (void) snprintf(message, sizeof(message),
+                    "DC: MIPI errors lane0=0x%08lx lane1=0x%08lx vc=0x%08lx fifo=0x%08lx\r\n",
+                    (unsigned long) lane_error_mask[0], (unsigned long) lane_error_mask[1],
+                    (unsigned long) virtual_channel_error_mask, (unsigned long) fifo_error_mask);
+    (void) print_to_console(message);
+    reported_lane_error_mask[0] = lane_error_mask[0];
+    reported_lane_error_mask[1] = lane_error_mask[1];
+    reported_virtual_channel_error_mask = virtual_channel_error_mask;
+    reported_fifo_error_mask = fifo_error_mask;
+}
+
+static void vin_diagnostics_poll(void)
+{
+    if (s_vin_first_frame_pending == 0U)
+    {
+        return;
+    }
+
+    uint32_t status = s_vin_first_frame_status;
+    uint32_t buffer = s_vin_first_frame_buffer;
+    char_t message[128];
+    (void) snprintf(message, sizeof(message),
+                    "DC: VIN first frame MS=0x%08lx FBS=%lu FMS=%lu buffer=0x%08lx\r\n",
+                    (unsigned long) status,
+                    (unsigned long) ((status >> 3) & 0x3U),
+                    (unsigned long) ((status >> 19) & 0x3U),
+                    (unsigned long) buffer);
+    (void) print_to_console(message);
+    s_vin_first_frame_pending = 0U;
+}
 
 /**********************************************************************************************************************
  * Set camera clock

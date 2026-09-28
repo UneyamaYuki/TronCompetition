@@ -88,7 +88,10 @@ void main_menu_thread_entry(void *pvParameters)
     sprintf (s_print_buffer, "Configuring connected devices, please wait\r\n");
     print_to_console(s_print_buffer);
 
-    common_init();
+    while (!system_up())
+    {
+        vTaskDelay(1);
+    }
 
     /* The graphics images in the QSPI flash were written in SPI mode.
      * Due to byte pairs being swapped when reading from the flash in high-speed QUAD mode,

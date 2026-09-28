@@ -10,7 +10,7 @@ EK-RA8P1 の OV5640 から 640x480 YUV422 を 5 fps で採取し、USB HS CDC-AC
 
 - EK-RA8P1、OV5640、USBケーブル2本（デバッグ用とCDC通信用）を用意する。
 - e2 studio 2026-01とFSP 6.4.0をインストールする。FSP 6.2のstandalone RASCは使用しない。
-- Arm GNU Toolchain 13.3.1をインストールする。
+- Arm GNU Toolchain 13.2.Rel1をインストールする。
 - Ninja、CMake、SEGGER J-Link Softwareをインストールする。
 - ボードのデバッグUSBをPCへ接続し、カメラを接続する。PCのUSB CDCポートは、ファームを書き込んだ後に別のUSB接続で認識される。
 
@@ -42,7 +42,7 @@ Smart Configuratorが開いたら、次を設定する。
 
 ```powershell
 Select-String -Path data_collector/firmware/ra_gen/common_data.h `
-	-Pattern 'g_basic0|VIN_CFG_IMAGE_STRIDE \(640\)|VIN_BYTES_PER_FRAME.*480'
+	-Pattern 'g_basic0|VIN_CFG_IMAGE_STRIDE \(1024\)|VIN_BYTES_PER_FRAME.*600'
 ```
 
 ### 4. ファームをビルドする
@@ -50,7 +50,7 @@ Select-String -Path data_collector/firmware/ra_gen/common_data.h `
 PowerShellでリポジトリ直下から実行する。Arm GCCのbinディレクトリは実際のインストール先に合わせる。
 
 ```powershell
-$env:ARM_GCC_TOOLCHAIN_PATH = 'C:/Program Files (x86)/Arm GNU Toolchain arm-none-eabi/13.3 rel1/bin'
+$env:ARM_GCC_TOOLCHAIN_PATH = 'C:/Program Files (x86)/Arm GNU Toolchain arm-none-eabi/13.2 Rel1/bin'
 cmake -S data_collector/firmware -B data_collector/firmware/build/Debug `
 	-G Ninja -DCMAKE_BUILD_TYPE=Debug `
 	-DCMAKE_TOOLCHAIN_FILE=data_collector/firmware/cmake/gcc.cmake `
@@ -100,14 +100,20 @@ e2 studioのDebug Configurationで、デバイスを `R7KA8P1KF`、接続をJ-Li
 & .venv/Scripts/python.exe -m pip install -r data_collector/pc/requirements.txt
 ```
 
-ボードをUSB CDCとして接続し、COM番号を確認する。Windowsではデバイスマネージャーの「ポート (COMとLPT)」で確認できる。COM番号が`COM6`の場合の起動例は次のとおり。
+ボードのUSB HS Device端子をPCへ接続し、Windowsのデバイスマネージャーでデータ収集用CDCが認識されていることを確認する。データ収集用CDCのUSB識別子は `VID:PID=1209:DCA1` であり、COM番号はWindowsの再列挙で変わることがある。受信側はCOM5を優先するが、COM5でなくてもこのVID/PIDのCDCが1台だけ列挙されていれば自動選択する。`VID:PID=1366:1024` のJ-Link VCOMはデータ収集用ではないため、選択しない。
 
 ```powershell
 New-Item -ItemType Directory -Force dataset | Out-Null
-& .venv/Scripts/python.exe data_collector/pc/collector_receiver.py COM6 --output dataset
+& .venv/Scripts/python.exe data_collector/pc/collector_receiver.py --output dataset
 ```
 
-受信プログラムは終了せず待機する。PCがCOMポートを開くことでDTRが有効になり、FW側で収集開始が許可される。
+受信プログラムは終了せず待機する。COM5が対象CDCならCOM5を開き、別のCOM番号ならログに選択した番号を表示する。対象VID/PIDが列挙されていない場合は、J-Link VCOMなど別のCOMを開かずエラーとして終了する。受信側はファームウェアのCDC準備条件に合わせてDTRを有効化し、RTSを無効化している。
+
+画素形式の検証を行う間だけ、次のオプションを追加してRAWペイロードを保存できる。`raw/*.bin` はフレームメタデータ16バイトと画像データを含む無加工の転送内容である。このオプションは検証終了後に受信ツールから削除する。
+
+```powershell
+& .venv/Scripts/python.exe data_collector/pc/collector_receiver.py --output dataset --save-raw
+```
 
 ### 7. 収集を開始して画像を保存する
 
@@ -121,14 +127,14 @@ New-Item -ItemType Directory -Force dataset | Out-Null
 
 ```text
 dataset/
-└─ session_<session_id>/
+└─ <YYYYMMDD_HHMMSS>/
 	 ├─ frames/
 	 │  ├─ frame_<sequence>_<timestamp>.jpg
 	 │  └─ ...
 	 └─ records.jsonl
 ```
 
-`records.jsonl`のRAWレコードで`width=640`、`height=480`、`format=YUYV422`を確認する。SESSION_ENDの`statistics.transmitted_frames`が保存対象フレーム数で、`dropped_frames`が0であることが正常の目安になる。
+`records.jsonl`のRAWレコードで`width=640`、`height=480`、`format=RGB565`を確認する。SESSION_ENDの`statistics.transmitted_frames`が保存対象フレーム数で、`dropped_frames`が0であることが正常の目安になる。
 
 ### 8. 収集できない場合の確認順
 
@@ -159,11 +165,11 @@ SW1は収集開始/停止、SW2は給餌マーカーです。PCが仮想COMポ�
 
 VINの正本設定は640x480、stride 640、YUV422、SDRAM 3面バッファへ更新済みです。FSP生成前の `ra_gen/common_data.*` は旧768x450設定のため、必ずFSP 6.4で再生成してから実機I/Oを有効にしてください。
 
-RAWフレームは8-byte整列のメタデータと640x480 YUYV422データで構成し、USBは16 KiB単位で送信します。PC側でJPEG quality 85に変換します。
+RAWフレームは8-byte整列のメタデータと640x480 RGB565 little-endianデータで構成し、USBは16 KiB単位で送信します。PC側でJPEG quality 85に変換します。
 
 ## ビルド
 
-Arm GNU Toolchain 13.3.1を使用します。
+Arm GNU Toolchain 13.2.Rel1を使用します。
 
 ```powershell
 cmake -S data_collector/firmware -B data_collector/firmware/build/Debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCOLLECTOR_FSP_IO_ENABLED=ON
@@ -179,7 +185,7 @@ python -m pip install -r data_collector/pc/requirements.txt
 python data_collector/pc/collector_receiver.py COM6 --output dataset
 ```
 
-保存先は `dataset/session_<id>/frames/*.jpg` と `records.jsonl` です。FWから受信したYUYV422をPC側でJPEG quality 85へ変換し、幅、高さ、形式、シーケンス番号、セッション開始からの時刻を記録します。
+保存先は `dataset/<YYYYMMDD_HHMMSS>/frames/*.jpg` と `records.jsonl` です。フォルダ名はPCがSESSION_STARTを受信したローカル時刻で、同じ秒に複数セッションが始まった場合は末尾に連番が付きます。FWから受信したRGB565 little-endianをPC側でJPEG quality 85へ変換し、幅、高さ、形式、シーケンス番号、セッション開始からの時刻を記録します。
 
 ## テスト
 

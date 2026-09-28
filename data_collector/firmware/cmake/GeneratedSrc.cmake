@@ -5,18 +5,33 @@
 file(GLOB_RECURSE Source_Files 
     ${CMAKE_CURRENT_SOURCE_DIR}/ra/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/ra/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/*.cxx
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/*.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/*.asm
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/*.sx
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/*.msa
     ${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/*.cxx
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/*.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/*.asm
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/*.sx
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/*.msa
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
-
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cxx
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.asm
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.sx
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.msa)
 
 SET(ALL_FILES ${Source_Files})
 
+add_executable(${PROJECT_NAME}.elf ${ALL_FILES})
 
-add_executable(${PROJECT_NAME}.elf
-	${ALL_FILES}
-)
 
 target_compile_options(${PROJECT_NAME}.elf
                        PRIVATE
@@ -36,67 +51,19 @@ target_compile_definitions(${PROJECT_NAME}.elf PRIVATE ${RASC_CMAKE_DEFINITIONS}
 target_include_directories(${PROJECT_NAME}.elf
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/ra/arm/CMSIS_6/CMSIS/Core/Include
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/aws/FreeRTOS/FreeRTOS/Source/include
     ${CMAKE_CURRENT_SOURCE_DIR}/ra/fsp/inc
     ${CMAKE_CURRENT_SOURCE_DIR}/ra/fsp/inc/api
     ${CMAKE_CURRENT_SOURCE_DIR}/ra/fsp/inc/instances
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/fsp/src/rm_lvgl_port
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/demos
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/examples
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/core
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/display
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/draw
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/drivers
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/font
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/indev
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/layouts
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/libs
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/misc
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/osal
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/others
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/stdlib
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/themes
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/3dtexture
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/animimage
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/arc
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/bar
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/button
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/buttonmatrix
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/calendar
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/canvas
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/chart
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/checkbox
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/dropdown
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/image
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/imagebutton
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/keyboard
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/label
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/led
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/line
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/list
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/lottie
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/menu
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/msgbox
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/objx_templ
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/property
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/roller
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/scale
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/slider
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/span
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/spinbox
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/spinner
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/switch
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/table
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/tabview
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/textarea
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/tileview
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra/lvgl/lvgl/src/widgets/win
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/fsp/src/r_drw
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/fsp/src/r_mipi_csi
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/fsp/src/r_usb_basic/src/driver/inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/fsp/src/r_vin
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra/fsp/src/rm_freertos_port
     ${CMAKE_CURRENT_SOURCE_DIR}/ra/tes/dave2d/inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/ra_cfg/aws
     ${CMAKE_CURRENT_SOURCE_DIR}/ra_cfg/fsp_cfg
     ${CMAKE_CURRENT_SOURCE_DIR}/ra_cfg/fsp_cfg/bsp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra_cfg/fsp_cfg/lvgl/lvgl
-    ${CMAKE_CURRENT_SOURCE_DIR}/ra_cfg/fsp_cfg/middleware
     ${CMAKE_CURRENT_SOURCE_DIR}/ra_gen
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -123,60 +90,69 @@ add_custom_command(
 )
 
 
+if ((NOT RENESAS_IDE) OR (NOT RENESAS_IDE STREQUAL "e2studio"))
+
+
 # Pre-build step: run RASC to generate project content if configuration.xml is changed
-add_custom_command(
-    OUTPUT
-        configuration.xml.stamp
-    COMMAND
-        echo "Running RASC for generating project ${PROJECT_NAME} content since modification is detected in configuration.xml:"
-    COMMAND
-        echo ${RASC_EXE_PATH}  -nosplash --launcher.suppressErrors --generate --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION} ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml
-    COMMAND
-        ${RASC_EXE_PATH}  -nosplash --launcher.suppressErrors --generate --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION} ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml 2> rasc_cmd_log.txt
-    COMMAND
-        ${CMAKE_COMMAND} -E touch configuration.xml.stamp
-    COMMENT
-        "RASC pre-build to generate project content for ${PROJECT_NAME}"
-    DEPENDS
-        ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml
-)
+	add_custom_command(
+	    OUTPUT
+	        configuration.xml.stamp
+	    COMMAND
+	        echo "Running RASC for generating project ${PROJECT_NAME} content since modification is detected in configuration.xml:"
+	    COMMAND
+	        echo ${RASC_EXE_PATH}  -nosplash --launcher.suppressErrors --generate --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION} --buildconfiguration ${CMAKE_BUILD_TYPE} ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml
+	    COMMAND
+	        ${RASC_EXE_PATH}  -nosplash --launcher.suppressErrors --generate --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION} --buildconfiguration ${CMAKE_BUILD_TYPE} ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml 2> rasc_cmd_log.txt
+	    COMMAND
+	        ${CMAKE_COMMAND} -E touch configuration.xml.stamp
+	    COMMENT
+	        "RASC pre-build to generate project content for ${PROJECT_NAME}"
+	    DEPENDS
+	        ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml
+	)
 
-add_custom_target(generate_content_${PROJECT_NAME}
-  DEPENDS configuration.xml.stamp
-)
+	add_custom_target(generate_content_${PROJECT_NAME}
+	  DEPENDS configuration.xml.stamp
+	)
+	
+	add_dependencies(${PROJECT_NAME}.elf generate_content_${PROJECT_NAME})
 
-add_dependencies(${PROJECT_NAME}.elf generate_content_${PROJECT_NAME})
+	# Post-build step: run RASC to generate the SmartBundle file
+	add_custom_command(
+		OUTPUT
+	         ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.sbd
+	    COMMAND
+	        echo "Running RASC post-build to generate Smart Bundle file for ${PROJECT_NAME}:"
+	    COMMAND
+	        echo ${RASC_EXE_PATH} -nosplash --launcher.suppressErrors --gensmartbundleandpartition --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION} --buildconfiguration ${CMAKE_BUILD_TYPE} ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf 
+	    COMMAND
+	        ${RASC_EXE_PATH} -nosplash --launcher.suppressErrors --gensmartbundleandpartition --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION} --buildconfiguration ${CMAKE_BUILD_TYPE} ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf  2> rasc_cmd_log.txt
+	)
 
-
-# Post-build step: run RASC to generate the SmartBundle file
-add_custom_command(
-	OUTPUT
-         ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.sbd
-    COMMAND
-        echo "Running RASC post-build to generate Smart Bundle file for ${PROJECT_NAME}:"
-    COMMAND
-        echo ${RASC_EXE_PATH} -nosplash --launcher.suppressErrors --gensmartbundle --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION}  ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf 
-    COMMAND
-        ${RASC_EXE_PATH} -nosplash --launcher.suppressErrors --gensmartbundle --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION}  ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf  2> rasc_cmd_log.txt
-)
-
-add_custom_target(generate_sbd_${PROJECT_NAME} ALL
-	DEPENDS
-		${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.sbd
-		${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf
-	VERBATIM
-)
-
-add_dependencies(generate_sbd_${PROJECT_NAME} ${PROJECT_NAME}.elf)
+	add_custom_target(generate_sbd_${PROJECT_NAME} ALL
+		DEPENDS
+			${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.sbd
+			${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf
+		VERBATIM
+	)
 
 
-add_custom_command(
-    TARGET
-        ${PROJECT_NAME}.elf
-    POST_BUILD
-    COMMAND
-        echo ${RASC_EXE_PATH} -nosplash --launcher.suppressErrors --gensmartbundle --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION}  ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf 
-    COMMAND
-        ${RASC_EXE_PATH} -nosplash --launcher.suppressErrors --gensmartbundle --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION}  ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf  2> rasc_cmd_log.txt
-	VERBATIM
-)
+	add_dependencies(generate_sbd_${PROJECT_NAME} ${PROJECT_NAME}.elf)
+
+
+	add_custom_command(
+	    TARGET
+	        ${PROJECT_NAME}.elf
+	    POST_BUILD
+	    COMMAND
+	        echo ${RASC_EXE_PATH} -nosplash --launcher.suppressErrors --gensmartbundleandpartition --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION} --buildconfiguration ${CMAKE_BUILD_TYPE} ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf 
+	    COMMAND
+	        ${RASC_EXE_PATH} -nosplash --launcher.suppressErrors --gensmartbundleandpartition --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION} --buildconfiguration ${CMAKE_BUILD_TYPE} ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf  2> rasc_cmd_log.txt
+		VERBATIM
+	)
+
+endif()
+
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/script/PostBuild.cmake)
+	include(${CMAKE_CURRENT_SOURCE_DIR}/script/PostBuild.cmake)
+endif()

@@ -213,7 +213,7 @@ fsp_err_t board_cfg_switch_func_read (int sw_pin, bool_t *state)
     uint8_t reg_write = 0;
     fsp_err_t err = FSP_ERR_INVALID_MODE;
 
-    target_sw = 0;
+    sw_pin--;
 
     /* set state as input */
     reg_write = 0x00;

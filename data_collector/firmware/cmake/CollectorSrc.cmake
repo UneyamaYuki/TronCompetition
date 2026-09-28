@@ -2,6 +2,16 @@ file(GLOB_RECURSE COLLECTOR_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/ra/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/*.c)
 
+if(COLLECTOR_FSP_IO_ENABLED)
+    set(COLLECTOR_USB_DESCRIPTOR_TEMPLATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/ra/fsp/src/r_usb_pcdc/r_usb_pcdc_descriptor.c.template)
+    set(COLLECTOR_USB_DESCRIPTOR_SOURCE
+        ${CMAKE_CURRENT_BINARY_DIR}/usb_pcdc_descriptor.c)
+    configure_file(${COLLECTOR_USB_DESCRIPTOR_TEMPLATE}
+        ${COLLECTOR_USB_DESCRIPTOR_SOURCE} COPYONLY)
+    list(APPEND COLLECTOR_SOURCES ${COLLECTOR_USB_DESCRIPTOR_SOURCE})
+endif()
+
 list(APPEND COLLECTOR_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/board_cfg_switch.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/board_greenpak.c
@@ -67,3 +77,11 @@ target_link_directories(${PROJECT_NAME}.elf PRIVATE
 add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O srec ${PROJECT_NAME}.elf ${PROJECT_NAME}.srec
     COMMENT "Creating S-record file in ${PROJECT_BINARY_DIR}")
+
+if(RASC_EXE_PATH)
+    add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
+        COMMAND echo "Running RASC post-build to generate Smart Bundle file for ${PROJECT_NAME}:"
+        COMMAND echo ${RASC_EXE_PATH} -nosplash --launcher.suppressErrors --gensmartbundle --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION} ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf
+        COMMAND ${RASC_EXE_PATH} -nosplash --launcher.suppressErrors --gensmartbundle --devicefamily ra --compiler GCC --toolchainversion ${CMAKE_C_COMPILER_VERSION} ${CMAKE_CURRENT_SOURCE_DIR}/configuration.xml ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.elf
+        VERBATIM)
+endif()

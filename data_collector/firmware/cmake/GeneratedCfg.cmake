@@ -3,7 +3,7 @@
 
 set(RASC_TARGET_DEVICE R7KA8P1KF)
 set(RASC_TARGET_ARCH cortex-m85)
-set(RASC_PROJECT_NAME test)
+set(RASC_PROJECT_NAME firmware)
 SET(RASC_TOOLCHAIN_NAME GCC)
 
 SET(RASC_CMAKE_ASM_FLAGS "-mfloat-abi=hard;-mcpu=cortex-m85;-Wunused;-Wuninitialized;-Wall;-Wextra;-Wmissing-declarations;-Wconversion;-Wpointer-arith;-Wshadow;-Wlogical-op;-Waggregate-return;-Wfloat-equal;-fmessage-length=0;-fsigned-char;-ffunction-sections;-fdata-sections;-mthumb;-x;assembler-with-cpp;-MMD;-MP")
@@ -13,6 +13,16 @@ SET(RASC_CMAKE_EXE_LINKER_FLAGS "-mfloat-abi=hard;-mcpu=cortex-m85;-Wunused;-Wun
 SET(RASC_CMAKE_DEFINITIONS "_RA_CORE=CPU0;_RA_ORDINAL=1;_RENESAS_RA_")
 SET(RASC_ASM_FILES "${CMAKE_CURRENT_SOURCE_DIR}/ra_gen/*.asm")
 
+cmake_path(GET CMAKE_CURRENT_SOURCE_DIR PARENT_PATH PROJECT_PARENT_DIR)
+
+file(RELATIVE_PATH  VAR_CMAKE_BUILD_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+
+
+
+
+if(DEVICE AND (NOT "${RASC_TARGET_DEVICE}" STREQUAL "${DEVICE}"))
+	message(FATAL_ERROR "Incorrect device specified ${DEVICE} but project is built for ${RASC_TARGET_DEVICE}")
+endif()
 
 
 # ADD COMPILE FLAGS FOR GCC version >= 12.2

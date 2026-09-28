@@ -15,6 +15,9 @@ else ()
   message(FATAL_ERROR "Toolchain path not defined. Please set ARM_TOOLCHAIN_PATH variable to set the toolchain's bin folder")
 endif()
 
+# Normalize Windows paths before CMake writes compiler paths into its cache files.
+file(TO_CMAKE_PATH "${CMAKE_FIND_ROOT_PATH}" CMAKE_FIND_ROOT_PATH)
+
 if(NOT EXISTS "${CMAKE_FIND_ROOT_PATH}" OR NOT IS_DIRECTORY "${CMAKE_FIND_ROOT_PATH}")
   message(FATAL_ERROR "Toolchain path does not exists: ${CMAKE_FIND_ROOT_PATH}")
 endif()

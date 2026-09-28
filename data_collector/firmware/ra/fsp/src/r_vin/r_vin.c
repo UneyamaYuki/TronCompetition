@@ -391,7 +391,7 @@ void vin_common_isr (vin_event_t event)
     if (interrupt_status.bits.frame_complete)
     {
         uint32_t ** buffer_pointer = (uint32_t **) (&R_VIN->MB1);
-        args.p_buffer = (uint8_t *) ((R_VIN->MS_b.FBS >= 0x3) ? NULL : *(buffer_pointer + R_VIN->MS_b.FMS)); // Buffer currently in use
+        args.p_buffer = (uint8_t *) ((R_VIN->MS_b.FMS >= 0x3) ? NULL : *(buffer_pointer + R_VIN->MS_b.FMS)); // Buffer with the completed frame
     }
 
     args.p_context = p_ctrl->p_context;

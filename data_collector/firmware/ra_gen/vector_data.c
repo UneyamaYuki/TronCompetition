@@ -36,17 +36,24 @@
             [29] = r_icu_isr, /* ICU IRQ19 (External pin interrupt 19) */
             [30] = gpt_counter_overflow_isr, /* GPT5 COUNTER OVERFLOW (Overflow) */
             [31] = gpt_counter_overflow_isr, /* GPT3 COUNTER OVERFLOW (Overflow) */
-            [32] = glcdc_line_detect_isr, /* GLCDC LINE DETECT (Specified line) */
-            [33] = glcdc_underflow_1_isr, /* GLCDC UNDERFLOW 1 (Graphic 1 underflow) */
-            [34] = glcdc_underflow_2_isr, /* GLCDC UNDERFLOW 2 (Graphic 2 underflow) */
-            [35] = drw_int_isr, /* DRW INT (DRW interrupt) */
-            [36] = vin_status_isr, /* VIN IRQ (Interrupt Request) */
-            [37] = vin_error_isr, /* VIN ERR (Interrupt Request for SYNC Error) */
-            [38] = mipi_csi_rx_isr, /* MIPICSI RX (Receive interrupt) */
-            [39] = mipi_csi_dl_isr, /* MIPICSI DL (Data Lane interrupt) */
-            [40] = mipi_csi_vc_isr, /* MIPICSI VC (Virtual Channel interrupt) */
-            [41] = mipi_csi_pm_isr, /* MIPICSI PM (Power Management interrupt) */
-            [42] = mipi_csi_gst_isr, /* MIPICSI GST (Generic Short Packet interrupt) */
+            [32] = usbfs_interrupt_handler, /* USBFS INT (USBFS interrupt) */
+            [33] = usbfs_resume_handler, /* USBFS RESUME (USBFS resume interrupt) */
+            [34] = usbfs_d0fifo_handler, /* USBFS FIFO 0 (DMA/DTC transfer request 0) */
+            [35] = usbfs_d1fifo_handler, /* USBFS FIFO 1 (DMA/DTC transfer request 1) */
+            [36] = usbhs_interrupt_handler, /* USBHS USB INT RESUME (USBHS interrupt) */
+            [37] = usbhs_d0fifo_handler, /* USBHS FIFO 0 (DMA transfer request 0) */
+            [38] = usbhs_d1fifo_handler, /* USBHS FIFO 1 (DMA transfer request 1) */
+            [39] = glcdc_line_detect_isr, /* GLCDC LINE DETECT (Specified line) */
+            [40] = glcdc_underflow_1_isr, /* GLCDC UNDERFLOW 1 (Graphic 1 underflow) */
+            [41] = glcdc_underflow_2_isr, /* GLCDC UNDERFLOW 2 (Graphic 2 underflow) */
+            [42] = drw_int_isr, /* DRW INT (DRW interrupt) */
+            [43] = vin_status_isr, /* VIN IRQ (Interrupt Request) */
+            [44] = vin_error_isr, /* VIN ERR (Interrupt Request for SYNC Error) */
+            [45] = mipi_csi_rx_isr, /* MIPICSI RX (Receive interrupt) */
+            [46] = mipi_csi_dl_isr, /* MIPICSI DL (Data Lane interrupt) */
+            [47] = mipi_csi_vc_isr, /* MIPICSI VC (Virtual Channel interrupt) */
+            [48] = mipi_csi_pm_isr, /* MIPICSI PM (Power Management interrupt) */
+            [49] = mipi_csi_gst_isr, /* MIPICSI GST (Generic Short Packet interrupt) */
         };
         #if BSP_FEATURE_ICU_HAS_IELSR
         const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_NUM_ENTRIES] =
@@ -83,17 +90,24 @@
             [29] = BSP_PRV_VECT_ENUM(EVENT_ICU_IRQ19,GROUP5), /* ICU IRQ19 (External pin interrupt 19) */
             [30] = BSP_PRV_VECT_ENUM(EVENT_GPT5_COUNTER_OVERFLOW,GROUP6), /* GPT5 COUNTER OVERFLOW (Overflow) */
             [31] = BSP_PRV_VECT_ENUM(EVENT_GPT3_COUNTER_OVERFLOW,GROUP7), /* GPT3 COUNTER OVERFLOW (Overflow) */
-            [32] = BSP_PRV_VECT_ENUM(EVENT_GLCDC_LINE_DETECT,FIXED), /* GLCDC LINE DETECT (Specified line) */
-            [33] = BSP_PRV_VECT_ENUM(EVENT_GLCDC_UNDERFLOW_1,FIXED), /* GLCDC UNDERFLOW 1 (Graphic 1 underflow) */
-            [34] = BSP_PRV_VECT_ENUM(EVENT_GLCDC_UNDERFLOW_2,FIXED), /* GLCDC UNDERFLOW 2 (Graphic 2 underflow) */
-            [35] = BSP_PRV_VECT_ENUM(EVENT_DRW_INT,FIXED), /* DRW INT (DRW interrupt) */
-            [36] = BSP_PRV_VECT_ENUM(EVENT_VIN_IRQ,FIXED), /* VIN IRQ (Interrupt Request) */
-            [37] = BSP_PRV_VECT_ENUM(EVENT_VIN_ERR,FIXED), /* VIN ERR (Interrupt Request for SYNC Error) */
-            [38] = BSP_PRV_VECT_ENUM(EVENT_MIPICSI_RX,FIXED), /* MIPICSI RX (Receive interrupt) */
-            [39] = BSP_PRV_VECT_ENUM(EVENT_MIPICSI_DL,FIXED), /* MIPICSI DL (Data Lane interrupt) */
-            [40] = BSP_PRV_VECT_ENUM(EVENT_MIPICSI_VC,FIXED), /* MIPICSI VC (Virtual Channel interrupt) */
-            [41] = BSP_PRV_VECT_ENUM(EVENT_MIPICSI_PM,FIXED), /* MIPICSI PM (Power Management interrupt) */
-            [42] = BSP_PRV_VECT_ENUM(EVENT_MIPICSI_GST,FIXED), /* MIPICSI GST (Generic Short Packet interrupt) */
+            [32] = BSP_PRV_VECT_ENUM(EVENT_USBFS_INT,FIXED), /* USBFS INT (USBFS interrupt) */
+            [33] = BSP_PRV_VECT_ENUM(EVENT_USBFS_RESUME,FIXED), /* USBFS RESUME (USBFS resume interrupt) */
+            [34] = BSP_PRV_VECT_ENUM(EVENT_USBFS_FIFO_0,FIXED), /* USBFS FIFO 0 (DMA/DTC transfer request 0) */
+            [35] = BSP_PRV_VECT_ENUM(EVENT_USBFS_FIFO_1,FIXED), /* USBFS FIFO 1 (DMA/DTC transfer request 1) */
+            [36] = BSP_PRV_VECT_ENUM(EVENT_USBHS_USB_INT_RESUME,FIXED), /* USBHS USB INT RESUME (USBHS interrupt) */
+            [37] = BSP_PRV_VECT_ENUM(EVENT_USBHS_FIFO_0,FIXED), /* USBHS FIFO 0 (DMA transfer request 0) */
+            [38] = BSP_PRV_VECT_ENUM(EVENT_USBHS_FIFO_1,FIXED), /* USBHS FIFO 1 (DMA transfer request 1) */
+            [39] = BSP_PRV_VECT_ENUM(EVENT_GLCDC_LINE_DETECT,FIXED), /* GLCDC LINE DETECT (Specified line) */
+            [40] = BSP_PRV_VECT_ENUM(EVENT_GLCDC_UNDERFLOW_1,FIXED), /* GLCDC UNDERFLOW 1 (Graphic 1 underflow) */
+            [41] = BSP_PRV_VECT_ENUM(EVENT_GLCDC_UNDERFLOW_2,FIXED), /* GLCDC UNDERFLOW 2 (Graphic 2 underflow) */
+            [42] = BSP_PRV_VECT_ENUM(EVENT_DRW_INT,FIXED), /* DRW INT (DRW interrupt) */
+            [43] = BSP_PRV_VECT_ENUM(EVENT_VIN_IRQ,FIXED), /* VIN IRQ (Interrupt Request) */
+            [44] = BSP_PRV_VECT_ENUM(EVENT_VIN_ERR,FIXED), /* VIN ERR (Interrupt Request for SYNC Error) */
+            [45] = BSP_PRV_VECT_ENUM(EVENT_MIPICSI_RX,FIXED), /* MIPICSI RX (Receive interrupt) */
+            [46] = BSP_PRV_VECT_ENUM(EVENT_MIPICSI_DL,FIXED), /* MIPICSI DL (Data Lane interrupt) */
+            [47] = BSP_PRV_VECT_ENUM(EVENT_MIPICSI_VC,FIXED), /* MIPICSI VC (Virtual Channel interrupt) */
+            [48] = BSP_PRV_VECT_ENUM(EVENT_MIPICSI_PM,FIXED), /* MIPICSI PM (Power Management interrupt) */
+            [49] = BSP_PRV_VECT_ENUM(EVENT_MIPICSI_GST,FIXED), /* MIPICSI GST (Generic Short Packet interrupt) */
         };
         #endif
         #endif

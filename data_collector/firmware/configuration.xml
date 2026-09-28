@@ -1870,12 +1870,12 @@
       <property id="module.driver.vin.input_ctrl.cfg_bits.input_mode" value="enum.mcu.vin.input_ctrl.cfg_bits.input_mode.ycbcr422_8_bit" />
       <property id="module.driver.vin.input_ctrl.cfg_bits.dithering_direction" value="enum.mcu.common_types.enabled_boolean.enabled" />
       <property id="module.driver.vin.input_ctrl.cfg_bits.yuv444_conversion" value="enum.mcu.vin.input_ctrl.cfg_bits.yuv444_conversion_mode.extend" />
-      <property id="module.driver.vin.input_ctrl.cfg_bits.scaling_enable" value="enum.mcu.common_types.enabled_boolean.disabled" />
+      <property id="module.driver.vin.input_ctrl.cfg_bits.scaling_enable" value="enum.mcu.common_types.enabled_boolean.enabled" />
       <property id="module.driver.vin.input_ctrl.cfg_bits.pixel_data_clipping" value="enum.mcu.vin.input_ctrl.cfg_bits.pixel_data_clipping.ycbcr422_8_bit" />
       <property id="module.driver.vin.input_ctrl.preclip.line_start" value="1" />
-      <property id="module.driver.vin.input_ctrl.image.size.vertical" value="480" />
+      <property id="module.driver.vin.input_ctrl.image.size.vertical" value="600" />
       <property id="module.driver.vin.input_ctrl.preclip.pixel_start" value="1" />
-      <property id="module.driver.vin.input_ctrl.image.size.horizontal" value="640" />
+      <property id="module.driver.vin.input_ctrl.image.size.horizontal" value="1024" />
       <property id="module.driver.vin.input_ctrl.csi_mode_bits.virtual_channel" value="0" />
       <property id="module.driver.vin.input_ctrl.csi_mode_bits.sign_extend_disable" value="enum.mcu.common_types.true_false_boolean.true" />
       <property id="module.driver.vin.input_ctrl.csi_detect_bits.field_detect_enable" value="enum.mcu.common_types.enabled_boolean.enabled" />
@@ -1883,9 +1883,9 @@
       <property id="module.driver.vin.output_ctrl.image_buffer_1_name" value="vin_image_buffer_1" />
       <property id="module.driver.vin.output_ctrl.image_buffer_2_name" value="vin_image_buffer_2" />
       <property id="module.driver.vin.output_ctrl.image_buffer_3_name" value="vin_image_buffer_3" />
-      <property id="module.driver.vin.output_ctrl.image_buffer_1_section" value=".sdram_noinit" />
-      <property id="module.driver.vin.output_ctrl.image_buffer_2_section" value=".sdram_noinit" />
-      <property id="module.driver.vin.output_ctrl.image_buffer_3_section" value=".sdram_noinit" />
+      <property id="module.driver.vin.output_ctrl.image_buffer_1_section" value=".sdram_noinit_nocache" />
+      <property id="module.driver.vin.output_ctrl.image_buffer_2_section" value=".sdram_noinit_nocache" />
+      <property id="module.driver.vin.output_ctrl.image_buffer_3_section" value=".sdram_noinit_nocache" />
       <property id="module.driver.vin.conversion_ctrl.data_conversion_mode" value="enum.mcu.vin.conversion_ctrl.data_conversion_mode.none" />
       <property id="module.driver.vin.conversion_ctrl.alpha_bit_value" value="module.driver.vin.conversion_ctrl.alpha_bit_value.one" />
       <property id="module.driver.vin.conversion_ctrl.output_data_byte_swap" value="enum.mcu.common_types.enabled_boolean.enabled" />
@@ -2010,7 +2010,7 @@
       <property id="module.driver.basic.name" value="g_basic0" />
       <property id="module.driver.usb_basic.usb_mode" value="module.driver.usb_basic.usb_mode.device" />
       <property id="module.driver.usb_basic.usb_speed" value="module.driver.usb_basic.usb_speed.hs" />
-      <property id="module.driver.usb_basic.usb_modulenumber" value="module.driver.usb_basic.usb_modulenumber.0" />
+      <property id="module.driver.usb_basic.usb_modulenumber" value="module.driver.usb_basic.usb_modulenumber.1" />
       <property id="module.driver.usb_basic.p_usb_reg" value="g_usb_descriptor" />
       <property id="module.driver.usb_basic.complience_cb" value="NULL" />
       <property id="module.driver.usb_basic.ipl" value="board.icu.common.irq.priority12" />
@@ -2696,6 +2696,9 @@
       <configSetting altId="p414.gpio_mode.gpio_mode_peripheral" configurationId="p414.gpio_mode" />
       <configSetting altId="p415.eswm_rgmii1.et1_mdc" configurationId="p415" />
       <configSetting altId="p415.gpio_mode.gpio_mode_peripheral" configurationId="p415.gpio_mode" />
+      <configSetting altId="p408.usbhs.usbhs_vbus" configurationId="p408" />
+      <configSetting altId="p408.gpio_speed.gpio_speed_m" configurationId="p408.gpio_drivecapacity" />
+      <configSetting altId="p408.gpio_mode.gpio_mode_peripheral" configurationId="p408.gpio_mode" />
       <configSetting altId="p501.gpt12.gtioc12a" configurationId="p501" />
       <configSetting altId="p501.gpio_mode.gpio_mode_peripheral" configurationId="p501.gpio_mode" />
       <configSetting altId="p502.sci8.sck8" configurationId="p502" />
@@ -2992,6 +2995,9 @@
       <configSetting altId="pd04.gpio_mode.gpio_mode_peripheral" configurationId="pd04.gpio_mode" />
       <configSetting altId="pd05.sci8.cts8" configurationId="pd05" />
       <configSetting altId="pd05.gpio_mode.gpio_mode_peripheral" configurationId="pd05.gpio_mode" />
+      <configSetting altId="pd07.usbhs.usbhs_vbusen" configurationId="pd07" />
+      <configSetting altId="pd07.gpio_speed.gpio_speed_m" configurationId="pd07.gpio_drivecapacity" />
+      <configSetting altId="pd07.gpio_mode.gpio_mode_peripheral" configurationId="pd07.gpio_mode" />
       <configSetting altId="sci0.cts_rts0.p604" configurationId="sci0.cts_rts0" />
       <configSetting altId="sci0.mode.simplespi.free" configurationId="sci0.mode" />
       <configSetting altId="sci0.rxd0.p602" configurationId="sci0.rxd0" />
@@ -3063,6 +3069,9 @@
       <configSetting altId="sdram.sdcs.p813" configurationId="sdram.sdcs" />
       <configSetting altId="sdram.we.pa08" configurationId="sdram.we" />
       <configSetting altId="spi1.mode.custom.free" configurationId="spi1.mode" />
+      <configSetting altId="usbhs.mode.custom.free" configurationId="usbhs.mode" />
+      <configSetting altId="usbhs.usbhs_vbus.p408" configurationId="usbhs.usbhs_vbus" />
+      <configSetting altId="usbhs.usbhs_vbusen.pd07" configurationId="usbhs.usbhs_vbusen" />
     </pincfg>
     <pincfg active="false" name="R7KA8P1KFLCAC.pincfg" selected="false" symbol="">
       <configSetting altId="jtag_fslash_swd.mode.jtag.free" configurationId="jtag_fslash_swd.mode" />

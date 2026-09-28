@@ -13,7 +13,10 @@
 
 #define COLLECTOR_FRAME_WIDTH          (640U)
 #define COLLECTOR_FRAME_HEIGHT         (480U)
-#define COLLECTOR_FRAME_BYTES          (COLLECTOR_FRAME_WIDTH * COLLECTOR_FRAME_HEIGHT * 2U)
+#define COLLECTOR_BYTES_PER_PIXEL      (2U)
+#define COLLECTOR_CAPTURE_STRIDE       (1024U * COLLECTOR_BYTES_PER_PIXEL)
+#define COLLECTOR_FRAME_ROW_BYTES      (COLLECTOR_FRAME_WIDTH * COLLECTOR_BYTES_PER_PIXEL)
+#define COLLECTOR_FRAME_BYTES          (COLLECTOR_FRAME_ROW_BYTES * COLLECTOR_FRAME_HEIGHT)
 #define COLLECTOR_EVENT_QUEUE_LENGTH   (8U)
 #define COLLECTOR_TASK_STACK_WORDS     (2048U)
 #define COLLECTOR_TASK_PRIORITY        (configMAX_PRIORITIES - 3U)
@@ -41,9 +44,9 @@ static TickType_t          s_last_toggle_tick;
 static TickType_t          s_last_marker_tick;
 static volatile bool       s_frame_event_pending;
 static uint8_t             s_frame_buffer[COLLECTOR_FRAME_BYTES]
-    BSP_PLACE_IN_SECTION(".sdram_noinit") BSP_ALIGN_VARIABLE(64);
+    BSP_PLACE_IN_SECTION(".sdram_noinit_nocache") BSP_ALIGN_VARIABLE(64);
 static uint8_t             s_raw_buffer[COLLECTOR_FRAME_BYTES + sizeof(collector_frame_metadata_t)]
-    BSP_PLACE_IN_SECTION(".sdram_noinit") BSP_ALIGN_VARIABLE(64);
+    BSP_PLACE_IN_SECTION(".sdram_noinit_nocache") BSP_ALIGN_VARIABLE(64);
 
 static void collector_task(void * p_context);
 static bool record_write(collector_record_type_t type, uint32_t timestamp_ms,
@@ -127,6 +130,7 @@ static void collector_task(void * p_context)
 
     while (true)
     {
+        collector_platform_usb_diagnostics_poll();
         collector_event_t event;
         if (xQueueReceive(s_event_queue, &event, pdMS_TO_TICKS(100U)) != pdPASS)
         {
@@ -183,7 +187,7 @@ static void session_start(TickType_t tick)
     s_last_sample_tick = tick - pdMS_TO_TICKS(COLLECTOR_SAMPLE_PERIOD_MS);
     char payload[96];
     int length = snprintf(payload, sizeof(payload),
-                          "{\"width\":640,\"height\":480,\"fps\":5,\"format\":\"YUYV422\",\"jpeg_on_pc\":true}");
+                          "{\"width\":640,\"height\":480,\"fps\":5,\"format\":\"RGB565\",\"jpeg_on_pc\":true}");
     if (length > 0)
     {
         (void) record_write(COLLECTOR_RECORD_SESSION_START, 0U, payload, (uint32_t) length);
@@ -208,7 +212,13 @@ static void frame_process(const collector_event_t * p_event)
 
     s_last_sample_tick = p_event->tick;
     s_context.statistics.captured_frames++;
-    memcpy(s_frame_buffer, p_event->p_frame, sizeof(s_frame_buffer));
+    const uint8_t * p_source = p_event->p_frame;
+    for (uint32_t row = 0; row < COLLECTOR_FRAME_HEIGHT; row++)
+    {
+        memcpy(s_frame_buffer + (row * COLLECTOR_FRAME_ROW_BYTES),
+               p_source + (row * COLLECTOR_CAPTURE_STRIDE),
+               COLLECTOR_FRAME_ROW_BYTES);
+    }
 
     collector_frame_metadata_t * p_metadata = (collector_frame_metadata_t *) s_raw_buffer;
     memcpy(s_raw_buffer + sizeof(*p_metadata), s_frame_buffer, sizeof(s_frame_buffer));

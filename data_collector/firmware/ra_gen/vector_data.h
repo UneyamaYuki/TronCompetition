@@ -6,7 +6,7 @@
         #endif
                 /* Number of interrupts allocated */
         #ifndef VECTOR_DATA_IRQ_COUNT
-        #define VECTOR_DATA_IRQ_COUNT    (43)
+        #define VECTOR_DATA_IRQ_COUNT    (50)
         #endif
         /* ISR prototypes */
         void iic_master_rxi_isr(void);
@@ -37,6 +37,13 @@
         void adc_b_fiforeq4_isr(void);
         void r_icu_isr(void);
         void gpt_counter_overflow_isr(void);
+        void usbfs_interrupt_handler(void);
+        void usbfs_resume_handler(void);
+        void usbfs_d0fifo_handler(void);
+        void usbfs_d1fifo_handler(void);
+        void usbhs_interrupt_handler(void);
+        void usbhs_d0fifo_handler(void);
+        void usbhs_d1fifo_handler(void);
         void glcdc_line_detect_isr(void);
         void glcdc_underflow_1_isr(void);
         void glcdc_underflow_2_isr(void);
@@ -114,30 +121,44 @@
         #define GPT5_COUNTER_OVERFLOW_IRQn          ((IRQn_Type) 30) /* GPT5 COUNTER OVERFLOW (Overflow) */
         #define VECTOR_NUMBER_GPT3_COUNTER_OVERFLOW ((IRQn_Type) 31) /* GPT3 COUNTER OVERFLOW (Overflow) */
         #define GPT3_COUNTER_OVERFLOW_IRQn          ((IRQn_Type) 31) /* GPT3 COUNTER OVERFLOW (Overflow) */
-        #define VECTOR_NUMBER_GLCDC_LINE_DETECT ((IRQn_Type) 32) /* GLCDC LINE DETECT (Specified line) */
-        #define GLCDC_LINE_DETECT_IRQn          ((IRQn_Type) 32) /* GLCDC LINE DETECT (Specified line) */
-        #define VECTOR_NUMBER_GLCDC_UNDERFLOW_1 ((IRQn_Type) 33) /* GLCDC UNDERFLOW 1 (Graphic 1 underflow) */
-        #define GLCDC_UNDERFLOW_1_IRQn          ((IRQn_Type) 33) /* GLCDC UNDERFLOW 1 (Graphic 1 underflow) */
-        #define VECTOR_NUMBER_GLCDC_UNDERFLOW_2 ((IRQn_Type) 34) /* GLCDC UNDERFLOW 2 (Graphic 2 underflow) */
-        #define GLCDC_UNDERFLOW_2_IRQn          ((IRQn_Type) 34) /* GLCDC UNDERFLOW 2 (Graphic 2 underflow) */
-        #define VECTOR_NUMBER_DRW_INT ((IRQn_Type) 35) /* DRW INT (DRW interrupt) */
-        #define DRW_INT_IRQn          ((IRQn_Type) 35) /* DRW INT (DRW interrupt) */
-        #define VECTOR_NUMBER_VIN_IRQ ((IRQn_Type) 36) /* VIN IRQ (Interrupt Request) */
-        #define VIN_IRQ_IRQn          ((IRQn_Type) 36) /* VIN IRQ (Interrupt Request) */
-        #define VECTOR_NUMBER_VIN_ERR ((IRQn_Type) 37) /* VIN ERR (Interrupt Request for SYNC Error) */
-        #define VIN_ERR_IRQn          ((IRQn_Type) 37) /* VIN ERR (Interrupt Request for SYNC Error) */
-        #define VECTOR_NUMBER_MIPICSI_RX ((IRQn_Type) 38) /* MIPICSI RX (Receive interrupt) */
-        #define MIPICSI_RX_IRQn          ((IRQn_Type) 38) /* MIPICSI RX (Receive interrupt) */
-        #define VECTOR_NUMBER_MIPICSI_DL ((IRQn_Type) 39) /* MIPICSI DL (Data Lane interrupt) */
-        #define MIPICSI_DL_IRQn          ((IRQn_Type) 39) /* MIPICSI DL (Data Lane interrupt) */
-        #define VECTOR_NUMBER_MIPICSI_VC ((IRQn_Type) 40) /* MIPICSI VC (Virtual Channel interrupt) */
-        #define MIPICSI_VC_IRQn          ((IRQn_Type) 40) /* MIPICSI VC (Virtual Channel interrupt) */
-        #define VECTOR_NUMBER_MIPICSI_PM ((IRQn_Type) 41) /* MIPICSI PM (Power Management interrupt) */
-        #define MIPICSI_PM_IRQn          ((IRQn_Type) 41) /* MIPICSI PM (Power Management interrupt) */
-        #define VECTOR_NUMBER_MIPICSI_GST ((IRQn_Type) 42) /* MIPICSI GST (Generic Short Packet interrupt) */
-        #define MIPICSI_GST_IRQn          ((IRQn_Type) 42) /* MIPICSI GST (Generic Short Packet interrupt) */
+        #define VECTOR_NUMBER_USBFS_INT ((IRQn_Type) 32) /* USBFS INT (USBFS interrupt) */
+        #define USBFS_INT_IRQn          ((IRQn_Type) 32) /* USBFS INT (USBFS interrupt) */
+        #define VECTOR_NUMBER_USBFS_RESUME ((IRQn_Type) 33) /* USBFS RESUME (USBFS resume interrupt) */
+        #define USBFS_RESUME_IRQn          ((IRQn_Type) 33) /* USBFS RESUME (USBFS resume interrupt) */
+        #define VECTOR_NUMBER_USBFS_FIFO_0 ((IRQn_Type) 34) /* USBFS FIFO 0 (DMA/DTC transfer request 0) */
+        #define USBFS_FIFO_0_IRQn          ((IRQn_Type) 34) /* USBFS FIFO 0 (DMA/DTC transfer request 0) */
+        #define VECTOR_NUMBER_USBFS_FIFO_1 ((IRQn_Type) 35) /* USBFS FIFO 1 (DMA/DTC transfer request 1) */
+        #define USBFS_FIFO_1_IRQn          ((IRQn_Type) 35) /* USBFS FIFO 1 (DMA/DTC transfer request 1) */
+        #define VECTOR_NUMBER_USBHS_USB_INT_RESUME ((IRQn_Type) 36) /* USBHS USB INT RESUME (USBHS interrupt) */
+        #define USBHS_USB_INT_RESUME_IRQn          ((IRQn_Type) 36) /* USBHS USB INT RESUME (USBHS interrupt) */
+        #define VECTOR_NUMBER_USBHS_FIFO_0 ((IRQn_Type) 37) /* USBHS FIFO 0 (DMA transfer request 0) */
+        #define USBHS_FIFO_0_IRQn          ((IRQn_Type) 37) /* USBHS FIFO 0 (DMA transfer request 0) */
+        #define VECTOR_NUMBER_USBHS_FIFO_1 ((IRQn_Type) 38) /* USBHS FIFO 1 (DMA transfer request 1) */
+        #define USBHS_FIFO_1_IRQn          ((IRQn_Type) 38) /* USBHS FIFO 1 (DMA transfer request 1) */
+        #define VECTOR_NUMBER_GLCDC_LINE_DETECT ((IRQn_Type) 39) /* GLCDC LINE DETECT (Specified line) */
+        #define GLCDC_LINE_DETECT_IRQn          ((IRQn_Type) 39) /* GLCDC LINE DETECT (Specified line) */
+        #define VECTOR_NUMBER_GLCDC_UNDERFLOW_1 ((IRQn_Type) 40) /* GLCDC UNDERFLOW 1 (Graphic 1 underflow) */
+        #define GLCDC_UNDERFLOW_1_IRQn          ((IRQn_Type) 40) /* GLCDC UNDERFLOW 1 (Graphic 1 underflow) */
+        #define VECTOR_NUMBER_GLCDC_UNDERFLOW_2 ((IRQn_Type) 41) /* GLCDC UNDERFLOW 2 (Graphic 2 underflow) */
+        #define GLCDC_UNDERFLOW_2_IRQn          ((IRQn_Type) 41) /* GLCDC UNDERFLOW 2 (Graphic 2 underflow) */
+        #define VECTOR_NUMBER_DRW_INT ((IRQn_Type) 42) /* DRW INT (DRW interrupt) */
+        #define DRW_INT_IRQn          ((IRQn_Type) 42) /* DRW INT (DRW interrupt) */
+        #define VECTOR_NUMBER_VIN_IRQ ((IRQn_Type) 43) /* VIN IRQ (Interrupt Request) */
+        #define VIN_IRQ_IRQn          ((IRQn_Type) 43) /* VIN IRQ (Interrupt Request) */
+        #define VECTOR_NUMBER_VIN_ERR ((IRQn_Type) 44) /* VIN ERR (Interrupt Request for SYNC Error) */
+        #define VIN_ERR_IRQn          ((IRQn_Type) 44) /* VIN ERR (Interrupt Request for SYNC Error) */
+        #define VECTOR_NUMBER_MIPICSI_RX ((IRQn_Type) 45) /* MIPICSI RX (Receive interrupt) */
+        #define MIPICSI_RX_IRQn          ((IRQn_Type) 45) /* MIPICSI RX (Receive interrupt) */
+        #define VECTOR_NUMBER_MIPICSI_DL ((IRQn_Type) 46) /* MIPICSI DL (Data Lane interrupt) */
+        #define MIPICSI_DL_IRQn          ((IRQn_Type) 46) /* MIPICSI DL (Data Lane interrupt) */
+        #define VECTOR_NUMBER_MIPICSI_VC ((IRQn_Type) 47) /* MIPICSI VC (Virtual Channel interrupt) */
+        #define MIPICSI_VC_IRQn          ((IRQn_Type) 47) /* MIPICSI VC (Virtual Channel interrupt) */
+        #define VECTOR_NUMBER_MIPICSI_PM ((IRQn_Type) 48) /* MIPICSI PM (Power Management interrupt) */
+        #define MIPICSI_PM_IRQn          ((IRQn_Type) 48) /* MIPICSI PM (Power Management interrupt) */
+        #define VECTOR_NUMBER_MIPICSI_GST ((IRQn_Type) 49) /* MIPICSI GST (Generic Short Packet interrupt) */
+        #define MIPICSI_GST_IRQn          ((IRQn_Type) 49) /* MIPICSI GST (Generic Short Packet interrupt) */
         /* The number of entries required for the ICU vector table. */
-        #define BSP_ICU_VECTOR_NUM_ENTRIES (43)
+        #define BSP_ICU_VECTOR_NUM_ENTRIES (50)
 
         #ifdef __cplusplus
         }
