@@ -1,53 +1,40 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
 
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-*.egg
-
-# Virtual environments
-venv/
+# Local development environments
 .venv/
-env/
-
-# IDE / Editor
 .vscode/
-.idea/
 .metadata/
-*.swp
-*.swo
-*~
-
-# OS files
-Thumbs.db
-Desktop.ini
-.DS_Store
-
-# Environment variables
-.env
-.env.local
+.settings/
 
 # Logs
 *.log
 
-# Testing / Coverage
+# Generated projects and test outputs
+build/
 /test/
 /test_RTOS/
-/data_collector/firmware/test/*.exe
-.pytest_cache/
-htmlcov/
-.coverage
-.coverage.*
-
-# .github
+app/Debug/
+data_collector/data_collector_fsp/
+data_collector/firmware/test/*.exe
 .github/
 
-# build environment
-data_collector/data_collector_fsp/
+# IDE and debug-session metadata
+app/.clangd
+app/.cproject
+app/.project
+app/*.jlink
+app/*.launch
+app/JLinkLog.log
+app/**/*.pdf
+app/**/*.png
+data_collector/firmware/.cproject
+data_collector/firmware/.project
 
-# Data files
+# Exported documentation assets
+docs/*.pdf
+docs/Gemini_Generated_Image_*.png
+
+# Local datasets
 dataset/

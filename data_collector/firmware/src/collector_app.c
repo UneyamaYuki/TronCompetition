@@ -27,7 +27,8 @@ typedef enum e_collector_event_type
 {
     COLLECTOR_EVENT_FRAME,
     COLLECTOR_EVENT_TOGGLE,
-    COLLECTOR_EVENT_FEED_MARKER
+    COLLECTOR_EVENT_FEED_MARKER,
+    COLLECTOR_EVENT_USB_CONTROL
 } collector_event_type_t;
 
 typedef struct st_collector_event
@@ -91,6 +92,11 @@ void collector_app_toggle_from_isr(void)
 void collector_app_feed_marker_from_isr(void)
 {
     event_from_isr(COLLECTOR_EVENT_FEED_MARKER, NULL);
+}
+
+void collector_app_usb_control_from_isr(void)
+{
+    event_from_isr(COLLECTOR_EVENT_USB_CONTROL, NULL);
 }
 
 static void event_from_isr(collector_event_type_t type, void * p_frame)
@@ -164,6 +170,10 @@ static void collector_task(void * p_context)
                 uint32_t timestamp = collector_state_timestamp(&s_context, tick_to_ms(event.tick));
                 (void) record_write(COLLECTOR_RECORD_FEED_MARKER, timestamp, NULL, 0U);
             }
+        }
+        else if (event.type == COLLECTOR_EVENT_USB_CONTROL)
+        {
+            collector_platform_usb_diagnostics_poll();
         }
         else if (event.type == COLLECTOR_EVENT_FRAME)
         {

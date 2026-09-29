@@ -1,0 +1,16 @@
+int HandleBeforeFlashProg(void)
+{
+    JLINK_MEM_WriteU8(0x40400d14, 0x00);
+    JLINK_MEM_WriteU8(0x40400d14, 0x40);
+
+    JLINK_MEM_WriteU32(0x40400858, 0x00000005);
+    JLINK_SYS_Sleep(1);
+    JLINK_MEM_WriteU32(0x40400858, 0x00000004);
+    JLINK_SYS_Sleep(1);
+    JLINK_MEM_WriteU32(0x40400858, 0x00000005);
+    JLINK_SYS_Sleep(1);
+
+    JLINK_MEM_WriteU8(0x40400d14, 0x00);
+    JLINK_MEM_WriteU8(0x40400d14, 0x80);
+    return 0;
+}

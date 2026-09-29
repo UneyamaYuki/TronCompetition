@@ -8,6 +8,7 @@
 #include "task.h"
 
 #include "bsp_pin_cfg.h"
+#include "collector_app.h"
 #include "hal_data.h"
 #include "r_usb_pcdc_api.h"
 #include "jlink_console.h"
@@ -189,11 +190,13 @@ void collector_usb_callback(usb_event_info_t * p_event, usb_hdl_t task, usb_onof
     {
         s_usb_control_event = *p_event;
         s_usb_control_operation = COLLECTOR_USB_CONTROL_GET;
+        collector_app_usb_control_from_isr();
     }
     else if ((p_event->event == USB_STATUS_REQUEST) && (request == USB_PCDC_SET_LINE_CODING))
     {
         s_usb_control_event = *p_event;
         s_usb_control_operation = COLLECTOR_USB_CONTROL_SET;
+        collector_app_usb_control_from_isr();
     }
     else if ((p_event->event == USB_STATUS_REQUEST) && (request == USB_PCDC_SET_CONTROL_LINE_STATE))
     {
