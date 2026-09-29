@@ -49,11 +49,11 @@ FSP_HEADER
 
     
 #ifndef VIN_CFG_IMAGE_STRIDE
-  #define VIN_CFG_IMAGE_STRIDE (1024)
+  #define VIN_CFG_IMAGE_STRIDE (640)
 #endif
 
 #ifndef VIN_CFG_BYTES_PER_LINE
-  #define VIN_CFG_BYTES_PER_LINE (2048)
+  #define VIN_CFG_BYTES_PER_LINE (1280)
 #endif
 
 

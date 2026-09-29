@@ -34,6 +34,7 @@
 #include "collector_app.h"
 #include "collector_platform.h"
 #include "collector_state.h"
+#include "../ra/fsp/inc/instances/r_mipi_csi.h"
 #include "../ra/fsp/inc/instances/r_mipi_phy.h"
 
 #include "jlink_console.h"
@@ -80,11 +81,18 @@
 static volatile uint32_t s_mipi_lane_error_mask[2];
 static volatile uint32_t s_mipi_virtual_channel_error_mask;
 static volatile uint32_t s_mipi_fifo_error_mask;
+static volatile uint32_t s_mipi_lane_snapshot[2];
+static volatile uint32_t s_mipi_rx_snapshot;
+static volatile uint32_t s_mipi_mist_snapshot;
+static volatile uint32_t s_mipi_pm_snapshot;
+static volatile uint32_t s_mipi_snapshot_pending;
 static volatile uint32_t s_vin_first_frame_status;
 static volatile uint32_t s_vin_first_frame_buffer;
 static volatile uint32_t s_vin_first_frame_pending;
 
 static void mipi_diagnostics_poll(void);
+static void mipi_register_diagnostics_print(void);
+static void ov5640_mipi_register_diagnostics_print(void);
 static void vin_diagnostics_poll(void);
 
 /**********************************************************************************************************************
@@ -347,12 +355,15 @@ void camera_thread_entry(void *pvParameters)
 
     bool_t usb_fs_role_on = false;
     bool_t usb_hs_role_on = false;
+    bool_t mipi_selected = false;
     bsp_io_level_t usb_hs_vbus = BSP_IO_LEVEL_LOW;
     fsp_err_t usb_fs_role_error = board_cfg_switch_func_read(SW4_USBFS_ROLE_SW, &usb_fs_role_on);
     fsp_err_t usb_hs_role_error = board_cfg_switch_func_read(SW4_USBHS_ROLE_SW, &usb_hs_role_on);
+    fsp_err_t mipi_select_error = board_cfg_switch_func_read(SW4_MIPI_SEL, &mipi_selected);
     fsp_err_t usb_hs_vbus_error = R_IOPORT_PinRead(g_ioport.p_ctrl, USB_HS_VBUS, &usb_hs_vbus);
     (void) snprintf(debug_message, sizeof(debug_message),
-                    "DC: USB role FS=%u err=%ld HS=%u err=%ld VBUS=%u err=%ld\r\n",
+                    "DC: MIPI_SEL=%u err=%ld USB role FS=%u err=%ld HS=%u err=%ld VBUS=%u err=%ld\r\n",
+                    (unsigned int) mipi_selected, (long) mipi_select_error,
                     (unsigned int) usb_fs_role_on, (long) usb_fs_role_error,
                     (unsigned int) usb_hs_role_on, (long) usb_hs_role_error,
                     (unsigned int) usb_hs_vbus, (long) usb_hs_vbus_error);
@@ -365,6 +376,10 @@ void camera_thread_entry(void *pvParameters)
     fsp_error = R_VIN_Open(&g_vin0_ctrl, &g_vin0_cfg);
     (void) snprintf(debug_message, sizeof(debug_message), "DC: R_VIN_Open=%ld\r\n", (long) fsp_error);
     (void) print_to_console(debug_message);
+    if (fsp_error == FSP_SUCCESS)
+    {
+        mipi_register_diagnostics_print();
+    }
 	
     /* Init globals */
     memset(fb_foreground, 0x55, sizeof(fb_foreground));
@@ -397,6 +412,7 @@ void camera_thread_entry(void *pvParameters)
         collector_platform_status_set((uint32_t) COLLECTOR_STATE_ERROR);
         vTaskDelete(NULL);
     }
+    ov5640_mipi_register_diagnostics_print();
     ov5640_stream_off();
     ov5640_write_reg(0x3008, 0x42); // software power down
 
@@ -978,6 +994,14 @@ void mipi_csi0_callback (mipi_csi_callback_args_t * p_args)
         {
             mipi_csi_data_lane_status_t data = p_args->event_data.data_lane_status;
             uint8_t lane_idx = p_args->event_idx;
+            if (lane_idx < 2U)
+            {
+                s_mipi_lane_snapshot[lane_idx] = data.mask;
+                s_mipi_rx_snapshot = R_MIPI_CSI->RXST;
+                s_mipi_mist_snapshot = R_MIPI_CSI->MIST;
+                s_mipi_pm_snapshot = R_MIPI_CSI->PMST;
+                s_mipi_snapshot_pending = 1U;
+            }
             if ((lane_idx < 2U) && (data.bits.err_sot_hs || data.bits.err_sot_sync ||
                                     data.bits.err_control || data.bits.err_escape))
             {
@@ -989,14 +1013,20 @@ void mipi_csi0_callback (mipi_csi_callback_args_t * p_args)
         case MIPI_CSI_EVENT_FRAME_DATA:
         {
             mipi_csi_receive_status_t data = p_args->event_data.receive_status;
-            FSP_PARAMETER_NOT_USED(data);
+            s_mipi_rx_snapshot = data.mask;
+            s_mipi_mist_snapshot = R_MIPI_CSI->MIST;
+            s_mipi_pm_snapshot = R_MIPI_CSI->PMST;
+            s_mipi_snapshot_pending = 1U;
             break;
         }
 
         case MIPI_CSI_EVENT_POWER:
         {
             mipi_csi_power_status_t data = p_args->event_data.power_status;
-            FSP_PARAMETER_NOT_USED(data);
+            s_mipi_rx_snapshot = R_MIPI_CSI->RXST;
+            s_mipi_mist_snapshot = R_MIPI_CSI->MIST;
+            s_mipi_pm_snapshot = data.mask;
+            s_mipi_snapshot_pending = 1U;
             break;
         }
 
@@ -1034,12 +1064,32 @@ void mipi_csi0_callback (mipi_csi_callback_args_t * p_args)
 
 static void mipi_diagnostics_poll(void)
 {
+    static uint32_t snapshot_reported;
     static uint32_t reported_lane_error_mask[2];
     static uint32_t reported_virtual_channel_error_mask;
     static uint32_t reported_fifo_error_mask;
     uint32_t lane_error_mask[2] = {s_mipi_lane_error_mask[0], s_mipi_lane_error_mask[1]};
     uint32_t virtual_channel_error_mask = s_mipi_virtual_channel_error_mask;
     uint32_t fifo_error_mask = s_mipi_fifo_error_mask;
+
+    if ((s_mipi_snapshot_pending != 0U) && (snapshot_reported == 0U))
+    {
+        char_t snapshot_message[192];
+        (void) snprintf(snapshot_message, sizeof(snapshot_message),
+                        "DC: MIPI snap lane0=%08lx lane1=%08lx rxst=%08lx mist=%08lx pmst=%08lx mct0=%08lx mct3=%08lx dl0=%08lx dl1=%08lx\r\n",
+                        (unsigned long) s_mipi_lane_snapshot[0],
+                        (unsigned long) s_mipi_lane_snapshot[1],
+                        (unsigned long) s_mipi_rx_snapshot,
+                        (unsigned long) s_mipi_mist_snapshot,
+                        (unsigned long) s_mipi_pm_snapshot,
+                        (unsigned long) R_MIPI_CSI->MCT0,
+                        (unsigned long) R_MIPI_CSI->MCT3,
+                        (unsigned long) R_MIPI_CSI->DLST0,
+                        (unsigned long) R_MIPI_CSI->DLST1);
+        (void) print_to_console(snapshot_message);
+        snapshot_reported = 1U;
+        s_mipi_snapshot_pending = 0U;
+    }
 
     if ((lane_error_mask[0] == reported_lane_error_mask[0]) &&
         (lane_error_mask[1] == reported_lane_error_mask[1]) &&
@@ -1059,6 +1109,51 @@ static void mipi_diagnostics_poll(void)
     reported_lane_error_mask[1] = lane_error_mask[1];
     reported_virtual_channel_error_mask = virtual_channel_error_mask;
     reported_fifo_error_mask = fifo_error_mask;
+}
+
+static void mipi_register_diagnostics_print(void)
+{
+    char_t message[160];
+    (void) snprintf(message, sizeof(message),
+                    "DC: MIPI CSI mct0=%08lx mct3=%08lx rxst=%08lx mist=%08lx dl0=%08lx dl1=%08lx pmst=%08lx\r\n",
+                    (unsigned long) R_MIPI_CSI->MCT0,
+                    (unsigned long) R_MIPI_CSI->MCT3,
+                    (unsigned long) R_MIPI_CSI->RXST,
+                    (unsigned long) R_MIPI_CSI->MIST,
+                    (unsigned long) R_MIPI_CSI->DLST0,
+                    (unsigned long) R_MIPI_CSI->DLST1,
+                    (unsigned long) R_MIPI_CSI->PMST);
+    (void) print_to_console(message);
+    (void) snprintf(message, sizeof(message),
+                    "DC: MIPI PHY tim1=%08lx tim2=%08lx tim3=%08lx tim4=%08lx tim5=%08lx tim6=%08lx\r\n",
+                    (unsigned long) R_MIPI_PHY->DPHYTIM1,
+                    (unsigned long) R_MIPI_PHY->DPHYTIM2,
+                    (unsigned long) R_MIPI_PHY->DPHYTIM3,
+                    (unsigned long) R_MIPI_PHY->DPHYTIM4,
+                    (unsigned long) R_MIPI_PHY->DPHYTIM5,
+                    (unsigned long) R_MIPI_PHY->DPHYTIM6);
+    (void) print_to_console(message);
+}
+
+static void ov5640_mipi_register_diagnostics_print(void)
+{
+    char_t message[160];
+    (void) snprintf(message, sizeof(message),
+                    "DC: OV5640 MIPI 300e=%02x 3034=%02x 3035=%02x 3036=%02x 3037=%02x 3108=%02x\r\n",
+                    (unsigned int) ov5640_read_reg(0x300e),
+                    (unsigned int) ov5640_read_reg(0x3034),
+                    (unsigned int) ov5640_read_reg(0x3035),
+                    (unsigned int) ov5640_read_reg(0x3036),
+                    (unsigned int) ov5640_read_reg(0x3037),
+                    (unsigned int) ov5640_read_reg(0x3108));
+    (void) print_to_console(message);
+    (void) snprintf(message, sizeof(message),
+                    "DC: OV5640 MIPI 4800=%02x 4814=%02x 4837=%02x 4202=%02x\r\n",
+                    (unsigned int) ov5640_read_reg(0x4800),
+                    (unsigned int) ov5640_read_reg(0x4814),
+                    (unsigned int) ov5640_read_reg(0x4837),
+                    (unsigned int) ov5640_read_reg(0x4202));
+    (void) print_to_console(message);
 }
 
 static void vin_diagnostics_poll(void)
