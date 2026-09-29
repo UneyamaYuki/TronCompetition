@@ -20,10 +20,12 @@ namespace
 {
 constexpr uint32_t kCameraWidth = 640U;
 constexpr uint32_t kCameraHeight = 480U;
-constexpr uint32_t kCameraStrideBytes = 2048U;
+constexpr uint32_t kCameraStrideBytes = 1280U;
 constexpr uint32_t kCameraBytesPerPixel = 2U;
 constexpr uint32_t kModelInputWidth = 256U;
 constexpr uint32_t kModelInputHeight = 256U;
+constexpr uint32_t kLetterboxContentHeight = 192U;
+constexpr uint32_t kLetterboxOffsetY = (kModelInputHeight - kLetterboxContentHeight) / 2U;
 constexpr uint32_t kSubpixelOne = 1U << 16U;
 constexpr UW kOv5640Address = 0x3cU;
 constexpr bsp_io_port_pin_t kCameraEnablePin = BSP_IO_PORT_01_PIN_08;
@@ -40,6 +42,7 @@ ID g_i2c_device = 0;
 uint8_t * volatile g_latest_frame = nullptr;
 volatile uint32_t g_frame_sequence = 0U;
 volatile uint32_t g_vin_callback_count = 0U;
+volatile uint32_t g_vin_extra_notify_count = 0U;
 volatile uint32_t g_vin_last_event = 0U;
 volatile uint32_t g_vin_last_event_status = 0U;
 volatile uint32_t g_vin_last_interrupt_status = 0U;
@@ -159,6 +162,40 @@ bool write_sensor_register(uint16_t address, uint8_t value)
 bool read_sensor_register(uint16_t address, uint8_t *value)
 {
     return hal_i2c_read_reg16(g_i2c_device, kOv5640Address, address, value) >= E_OK;
+}
+
+void report_sensor_runtime_settings()
+{
+    uint8_t exposure_high = 0U;
+    uint8_t exposure_middle = 0U;
+    uint8_t exposure_low = 0U;
+    uint8_t gain_high = 0U;
+    uint8_t gain_low = 0U;
+    uint8_t contrast = 0U;
+    uint8_t isp_control = 0U;
+    uint8_t format_control = 0U;
+    if (!read_sensor_register(0x3500U, &exposure_high) ||
+        !read_sensor_register(0x3501U, &exposure_middle) ||
+        !read_sensor_register(0x3502U, &exposure_low) ||
+        !read_sensor_register(0x350aU, &gain_high) ||
+        !read_sensor_register(0x350bU, &gain_low) ||
+        !read_sensor_register(0x5580U, &contrast) ||
+        !read_sensor_register(0x5000U, &isp_control) ||
+        !read_sensor_register(0x4300U, &format_control))
+    {
+        tm_putstring((UB *)"Sensor runtime readback failed.\n");
+        return;
+    }
+
+    tm_printf((UB *)"Sensor runtime: exposure=%02x%02x%02x gain=%02x%02x contrast=%02x isp=%02x format=%02x\n",
+              static_cast<unsigned int>(exposure_high),
+              static_cast<unsigned int>(exposure_middle),
+              static_cast<unsigned int>(exposure_low),
+              static_cast<unsigned int>(gain_high),
+              static_cast<unsigned int>(gain_low),
+              static_cast<unsigned int>(contrast),
+              static_cast<unsigned int>(isp_control),
+              static_cast<unsigned int>(format_control));
 }
 
 bool reset_sensor_before_identification()
@@ -286,7 +323,7 @@ bool configure_camera_pins()
     return report_fsp_error("reset pins", error);
 }
 
-uint8_t rgb565_to_grayscale(const uint8_t *frame, uint32_t x, uint32_t y)
+uint8_t rgb565_to_channel(const uint8_t *frame, uint32_t x, uint32_t y, uint32_t channel)
 {
     const uint32_t pixel_offset = y * kCameraStrideBytes + x * kCameraBytesPerPixel;
     const uint16_t pixel = static_cast<uint16_t>(frame[pixel_offset]) |
@@ -294,13 +331,28 @@ uint8_t rgb565_to_grayscale(const uint8_t *frame, uint32_t x, uint32_t y)
     const uint8_t red = static_cast<uint8_t>(((pixel >> 11U) & 0x1fU) * 255U / 31U);
     const uint8_t green = static_cast<uint8_t>(((pixel >> 5U) & 0x3fU) * 255U / 63U);
     const uint8_t blue = static_cast<uint8_t>((pixel & 0x1fU) * 255U / 31U);
-    return static_cast<uint8_t>((77U * red + 150U * green + 29U * blue + 128U) >> 8U);
+    if (channel == 0U)
+    {
+        return red;
+    }
+    if (channel == 1U)
+    {
+        return green;
+    }
+    return blue;
 }
 
-uint8_t resize_grayscale_pixel(const uint8_t *frame, uint32_t output_x, uint32_t output_y)
+uint8_t resize_rgb565_channel(const uint8_t *frame, uint32_t output_x, uint32_t output_y,
+                              uint32_t channel)
 {
     const uint32_t x_position_q16 = (output_x * 10U + 3U) << 14U;
-    const uint32_t y_position_q16 = output_y * 122880U + 28672U;
+    if (output_y < kLetterboxOffsetY ||
+        output_y >= kLetterboxOffsetY + kLetterboxContentHeight)
+    {
+        return 0U;
+    }
+    const uint32_t content_y = output_y - kLetterboxOffsetY;
+    const uint32_t y_position_q16 = (content_y * 10U + 3U) << 14U;
     const uint32_t source_x0 = static_cast<uint32_t>(x_position_q16 >> 16U);
     const uint32_t source_y0 = static_cast<uint32_t>(y_position_q16 >> 16U);
     const uint32_t source_x1 = source_x0 + 1U;
@@ -309,13 +361,13 @@ uint8_t resize_grayscale_pixel(const uint8_t *frame, uint32_t output_x, uint32_t
     const uint32_t y_fraction = static_cast<uint32_t>(y_position_q16) & 0xffffU;
 
     const uint64_t top =
-        static_cast<uint64_t>(rgb565_to_grayscale(frame, source_x0, source_y0)) *
+        static_cast<uint64_t>(rgb565_to_channel(frame, source_x0, source_y0, channel)) *
             (kSubpixelOne - x_fraction) +
-        static_cast<uint64_t>(rgb565_to_grayscale(frame, source_x1, source_y0)) * x_fraction;
+        static_cast<uint64_t>(rgb565_to_channel(frame, source_x1, source_y0, channel)) * x_fraction;
     const uint64_t bottom =
-        static_cast<uint64_t>(rgb565_to_grayscale(frame, source_x0, source_y1)) *
+        static_cast<uint64_t>(rgb565_to_channel(frame, source_x0, source_y1, channel)) *
             (kSubpixelOne - x_fraction) +
-        static_cast<uint64_t>(rgb565_to_grayscale(frame, source_x1, source_y1)) * x_fraction;
+        static_cast<uint64_t>(rgb565_to_channel(frame, source_x1, source_y1, channel)) * x_fraction;
     const uint64_t weighted = top * (kSubpixelOne - y_fraction) + bottom * y_fraction;
     return static_cast<uint8_t>((weighted + (1ULL << 31U)) >> 32U);
 }
@@ -344,6 +396,11 @@ extern "C" void fish_bbox_vin_callback(capture_callback_args_t *args)
     }
     if (args->event == VIN_EVENT_NOTIFY && args->p_buffer != nullptr)
     {
+        if (g_frame_capture_stopped)
+        {
+            ++g_vin_extra_notify_count;
+            return;
+        }
         g_latest_frame = args->p_buffer;
         ++g_frame_sequence;
         R_VIN->MC_b.ME = 0;
@@ -418,7 +475,10 @@ bool fish_bbox_camera_start()
 
     g_camera_vin_extend = *static_cast<const vin_extended_cfg_t *>(g_vin0_cfg.p_extend);
     g_camera_vin_extend.input_ctrl.cfg_bits.scaling_enable = true;
+    g_camera_vin_extend.input_ctrl.image_stride = 640U;
     g_camera_vin_extend.conversion_ctrl.data_mode_bits.output_data_byte_swap = true;
+    g_camera_vin_extend.conversion_data.uds_bwidth_bits.bwidth_v = 51U;
+    g_camera_vin_extend.conversion_data.uds_bwidth_bits.bwidth_h = 40U;
     g_camera_vin_extend.conversion_data.uds_scale_bits.vertical_mask = 5120U;
     g_camera_vin_extend.conversion_data.uds_scale_bits.horizontal_mask = 6553U;
     g_camera_vin_extend.conversion_data.uds_clipping_bits.cl_vsize = kCameraHeight;
@@ -573,6 +633,11 @@ const uint8_t *fish_bbox_camera_latest_frame()
     return g_latest_frame;
 }
 
+uint32_t fish_bbox_camera_extra_notify_count()
+{
+    return g_vin_extra_notify_count;
+}
+
 void fish_bbox_camera_report_status()
 {
     g_vin_raw_module_status = R_VIN->MS;
@@ -613,11 +678,11 @@ void fish_bbox_camera_report_status()
               static_cast<unsigned int>(g_csi_raw_control_status));
 }
 
-bool fish_bbox_camera_prepare_input(int8_t *output, size_t output_bytes,
+bool fish_bbox_camera_prepare_input(uint8_t *output, size_t output_bytes,
                                     float input_scale, int32_t input_zero_point,
                                     uint32_t *frame_sequence)
 {
-    if (output == nullptr || output_bytes != kModelInputWidth * kModelInputHeight ||
+    if (output == nullptr || output_bytes != kModelInputWidth * kModelInputHeight * 3U ||
         input_scale <= 0.0f || frame_sequence == nullptr)
     {
         return false;
@@ -677,6 +742,12 @@ bool fish_bbox_camera_prepare_input(int8_t *output, size_t output_bytes,
     }
 
     static bool first_preprocessing_complete_reported = false;
+    uint8_t input_min = 255U;
+    uint8_t input_max = 0U;
+    uint32_t input_sum = 0U;
+    uint8_t quantized_min = 255U;
+    uint8_t quantized_max = 0U;
+    uint32_t quantized_sum = 0U;
     if (!first_preprocessing_complete_reported)
     {
         tm_putstring((UB *)"Resizing VIN frame with fixed-point bilinear.\n");
@@ -685,22 +756,31 @@ bool fish_bbox_camera_prepare_input(int8_t *output, size_t output_bytes,
     {
         if (!first_preprocessing_complete_reported && y == 0U)
         {
-            tm_putstring((UB *)"Writing first resized RGB565 grayscale row.\n");
+            tm_putstring((UB *)"Writing first resized RGB row.\n");
         }
         for (uint32_t x = 0; x < kModelInputWidth; ++x)
         {
-            const uint8_t grayscale = resize_grayscale_pixel(frame, x, y);
-            const float normalized = static_cast<float>(grayscale) / 255.0f;
-            int32_t quantized = static_cast<int32_t>(normalized / input_scale + 0.5f) + input_zero_point;
-            if (quantized < -128)
+            for (uint32_t channel = 0U; channel < 3U; ++channel)
             {
-                quantized = -128;
+                const uint8_t value = resize_rgb565_channel(frame, x, y, channel);
+                const float normalized = static_cast<float>(value) / 255.0f;
+                int32_t quantized = static_cast<int32_t>(normalized / input_scale + 0.5f) + input_zero_point;
+                if (quantized < 0)
+                {
+                    quantized = 0;
+                }
+                else if (quantized > 255)
+                {
+                    quantized = 255;
+                }
+                output[(y * kModelInputWidth + x) * 3U + channel] = static_cast<uint8_t>(quantized);
+                input_min = value < input_min ? value : input_min;
+                input_max = value > input_max ? value : input_max;
+                input_sum += value;
+                quantized_min = static_cast<uint8_t>(quantized < quantized_min ? quantized : quantized_min);
+                quantized_max = static_cast<uint8_t>(quantized > quantized_max ? quantized : quantized_max);
+                quantized_sum += static_cast<uint32_t>(quantized);
             }
-            else if (quantized > 127)
-            {
-                quantized = 127;
-            }
-            output[y * kModelInputWidth + x] = static_cast<int8_t>(quantized);
         }
         if (!first_preprocessing_complete_reported && ((y + 1U) % 16U) == 0U)
         {
@@ -708,6 +788,34 @@ bool fish_bbox_camera_prepare_input(int8_t *output, size_t output_bytes,
                       static_cast<unsigned int>(y + 1U),
                       static_cast<unsigned int>(kModelInputHeight));
         }
+    }
+
+    static uint32_t preprocess_report_count = 0U;
+    ++preprocess_report_count;
+    if (preprocess_report_count <= 3U || (preprocess_report_count % 25U) == 0U)
+    {
+        if (preprocess_report_count == 1U)
+        {
+            report_sensor_runtime_settings();
+        }
+        const uint32_t center_offset = (kCameraHeight / 2U) * kCameraStrideBytes +
+                                       (kCameraWidth / 2U) * kCameraBytesPerPixel;
+        const uint32_t bottom_right_offset = (kCameraHeight - 1U) * kCameraStrideBytes +
+                                             (kCameraWidth - 1U) * kCameraBytesPerPixel;
+        tm_printf((UB *)"Input stats: seq=%u frame=%08x raw=%02x%02x/%02x%02x/%02x%02x rgb=%u..%u avg=%u q=%u..%u avg=%u zp=%d\n",
+                  static_cast<unsigned int>(sequence_after),
+                  static_cast<unsigned int>(reinterpret_cast<uintptr_t>(frame)),
+                  static_cast<unsigned int>(frame[0]), static_cast<unsigned int>(frame[1]),
+                  static_cast<unsigned int>(frame[center_offset]),
+                  static_cast<unsigned int>(frame[center_offset + 1U]),
+                  static_cast<unsigned int>(frame[bottom_right_offset]),
+                  static_cast<unsigned int>(frame[bottom_right_offset + 1U]),
+                  static_cast<unsigned int>(input_min),
+                  static_cast<unsigned int>(input_max),
+                  static_cast<unsigned int>(input_sum / (kModelInputWidth * kModelInputHeight * 3U)),
+                  static_cast<unsigned int>(quantized_min), static_cast<unsigned int>(quantized_max),
+                  static_cast<unsigned int>(quantized_sum / (kModelInputWidth * kModelInputHeight * 3U)),
+                  static_cast<int>(input_zero_point));
     }
 
     *frame_sequence = sequence_after;

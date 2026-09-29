@@ -6,6 +6,8 @@ import tensorflow as tf
 
 from .dataset import INPUT_SIZE
 
+DEFAULT_LEARNING_RATE = 1e-4
+
 
 @tf.keras.utils.register_keras_serializable(package="FishBBox")
 def bbox_loss(y_true: Any, y_pred: Any) -> tf.Tensor:
@@ -14,7 +16,10 @@ def bbox_loss(y_true: Any, y_pred: Any) -> tf.Tensor:
     return coordinates_loss + 2.0 * confidence_loss
 
 
-def build_model(input_size: int = INPUT_SIZE) -> tf.keras.Model:
+def build_model(
+    input_size: int = INPUT_SIZE,
+    learning_rate: float = DEFAULT_LEARNING_RATE,
+) -> tf.keras.Model:
     inputs = tf.keras.Input(shape=(input_size, input_size, 1), name="image")
     features = tf.keras.layers.Conv2D(16, 3, strides=2, padding="same", activation="relu")(inputs)
     features = tf.keras.layers.DepthwiseConv2D(3, strides=2, padding="same", activation="relu")(features)
@@ -24,12 +29,13 @@ def build_model(input_size: int = INPUT_SIZE) -> tf.keras.Model:
     features = tf.keras.layers.Flatten()(features)
     outputs = tf.keras.layers.Dense(5, activation="linear", name="fish_bbox")(features)
     model = tf.keras.Model(inputs=inputs, outputs=outputs, name="fish_bbox")
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3), loss=bbox_loss)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate), loss=bbox_loss)
     return model
 
 
 def build_mobilenetv2_model(
     input_size: int = INPUT_SIZE,
+    learning_rate: float = DEFAULT_LEARNING_RATE,
 ) -> tuple[tf.keras.Model, tf.keras.Model]:
     inputs = tf.keras.Input(shape=(input_size, input_size, 1), name="image")
     rgb = tf.keras.layers.Concatenate(name="grayscale_to_rgb")([inputs, inputs, inputs])
@@ -48,5 +54,5 @@ def build_mobilenetv2_model(
     features = tf.keras.layers.GlobalAveragePooling2D(name="global_average_pooling")(features)
     outputs = tf.keras.layers.Dense(5, activation="sigmoid", name="fish_bbox")(features)
     model = tf.keras.Model(inputs=inputs, outputs=outputs, name="fish_bbox_mobilenetv2")
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3), loss=bbox_loss)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate), loss=bbox_loss)
     return model, backbone

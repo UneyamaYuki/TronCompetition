@@ -17,7 +17,14 @@ from .dataset import (
     session_names,
     split_by_session,
 )
-from .model import bbox_loss, build_model, build_mobilenetv2_model
+from .model import (
+    DEFAULT_LEARNING_RATE,
+    bbox_loss,
+    build_model,
+    build_mobilenetv2_model,
+)
+
+DEFAULT_FINE_TUNE_LEARNING_RATE = 1e-6
 
 
 def _jsonable_history(history: dict[str, list[float]]) -> dict[str, list[float]]:
@@ -64,6 +71,8 @@ def train(
     seed: int,
     architecture: str,
     input_size: int,
+    learning_rate: float = DEFAULT_LEARNING_RATE,
+    fine_tune_learning_rate: float = DEFAULT_FINE_TUNE_LEARNING_RATE,
 ) -> None:
     tf.keras.utils.set_random_seed(seed)
     if has_coco_dataset(dataset_root):
@@ -88,7 +97,13 @@ def train(
     test_images, test_targets = samples_to_arrays(splits["test"], input_size=input_size)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    split_manifest = {"architecture": architecture, "input_size": input_size}
+    split_manifest = {
+        "architecture": architecture,
+        "input_size": input_size,
+        "optimizer": "Adam",
+        "learning_rate": learning_rate,
+        "fine_tune_learning_rate": fine_tune_learning_rate,
+    }
     split_manifest.update(
         {
             split_name: {
@@ -103,9 +118,11 @@ def train(
     )
 
     if architecture == "mobilenetv2":
-        model, backbone = build_mobilenetv2_model(input_size=input_size)
+        model, backbone = build_mobilenetv2_model(
+            input_size=input_size, learning_rate=learning_rate
+        )
     else:
-        model = build_model(input_size=input_size)
+        model = build_model(input_size=input_size, learning_rate=learning_rate)
         backbone = None
     checkpoint_path = str(output_dir / "fish_bbox_best.keras")
     training_log_path = str(output_dir / "training.csv")
@@ -138,7 +155,7 @@ def train(
                 if isinstance(layer, tf.keras.layers.BatchNormalization):
                     layer.trainable = False
             model.compile(
-                optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+                optimizer=tf.keras.optimizers.Adam(learning_rate=fine_tune_learning_rate),
                 loss=bbox_loss,
             )
             fine_tune_history = model.fit(
@@ -196,6 +213,12 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--seed", type=int, default=20260927)
     parser.add_argument("--input-size", type=int, default=INPUT_SIZE)
+    parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
+    parser.add_argument(
+        "--fine-tune-learning-rate",
+        type=float,
+        default=DEFAULT_FINE_TUNE_LEARNING_RATE,
+    )
     parser.add_argument(
         "--architecture",
         choices=("mobilenetv2", "small_cnn"),
@@ -212,6 +235,8 @@ def main() -> None:
         seed=args.seed,
         architecture=args.architecture,
         input_size=args.input_size,
+        learning_rate=args.learning_rate,
+        fine_tune_learning_rate=args.fine_tune_learning_rate,
     )
 
 

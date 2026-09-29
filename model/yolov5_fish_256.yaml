@@ -1,0 +1,7 @@
+path: D:/Python Script/TronCompetition/model/dataset/256x256
+train: train
+val: valid
+test: test
+nc: 1
+names:
+  0: goldfish

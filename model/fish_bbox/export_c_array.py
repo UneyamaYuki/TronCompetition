@@ -5,7 +5,13 @@ import re
 from pathlib import Path
 
 
-def export_model(source: Path, header: Path, implementation: Path, symbol: str) -> None:
+def export_model(
+    source: Path,
+    header: Path,
+    implementation: Path,
+    symbol: str,
+    section: str | None,
+) -> None:
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", symbol):
         raise ValueError(f"invalid C++ symbol: {symbol}")
     data = source.read_bytes()
@@ -22,10 +28,15 @@ def export_model(source: Path, header: Path, implementation: Path, symbol: str) 
     header.parent.mkdir(parents=True, exist_ok=True)
     header.write_text("\n".join(lines), encoding="ascii")
 
+    array_declaration = f"alignas(16) const std::uint8_t {symbol}[]"
+    if section:
+        if not re.fullmatch(r"[A-Za-z0-9_.$]+", section):
+            raise ValueError(f"invalid linker section: {section}")
+        array_declaration += f' __attribute__((section("{section}"), used))'
     implementation_lines = [
         f'#include "{header.name}"',
         "",
-        f"alignas(16) const std::uint8_t {symbol}[] = {{",
+        f"{array_declaration} = {{",
     ]
     for offset in range(0, len(data), 12):
         row = data[offset : offset + 12]
@@ -52,8 +63,9 @@ def main() -> None:
         "--source", type=Path, default=Path("app/src/ai/model/fish_bbox_model_data.cc")
     )
     parser.add_argument("--symbol", default="g_fish_bbox_model_data")
+    parser.add_argument("--section", help="Place the model array in this linker section.")
     args = parser.parse_args()
-    export_model(args.input, args.header, args.source, args.symbol)
+    export_model(args.input, args.header, args.source, args.symbol, args.section)
 
 
 if __name__ == "__main__":

@@ -61,12 +61,14 @@ python -m model.fish_bbox.train `
   --output-dir build\ml\fish_bbox_256 `
   --architecture mobilenetv2 `
   --input-size 256 `
+  --learning-rate 1e-4 `
+  --fine-tune-learning-rate 1e-6 `
   --epochs 80
 ```
 
 元の小型CNNを重みなしで学習する場合だけ、`--architecture small_cnn` を指定します。
 
-学習ではセッション単位で train / validation / test に分割します。出力は `fish_bbox_float.keras`、分割情報、学習履歴、test loss です。
+学習ではセッション単位で train / validation / test に分割します。optimizerはAdamで、既定の学習率はヘッドが `1e-4`、MobileNetV2のfine-tune時が `1e-6` です。出力は `fish_bbox_float.keras`、分割情報、学習履歴、test loss です。
 
 ## 4. Full INT8変換
 
@@ -104,10 +106,30 @@ python -m model.fish_bbox.export_c_array `
 
 ## 6. 検証済み成果物
 
-2026-09-28時点の256x256モデルのCOCO test split（111画像）では、Float Kerasモデルの `mean_iou=0.429438`、`iou50=0.405405`、Full INT8のCPU評価では `mean_iou=0.354975`、`iou50=0.270270` でした。`fish_bbox_int8.json`では入力 `[1, 256, 256, 1]` とINT8量子化を確認しています。実機投入前にはEthos-Uランタイム上の結果も確認します。
+旧データセットの256x256モデル（COCO test split 111画像）では、Float Kerasモデルの `mean_iou=0.429438`、`iou50=0.405405`、Full INT8のCPU評価では `mean_iou=0.354975`、`iou50=0.270270` でした。`fish_bbox_int8.json`では入力 `[1, 256, 256, 1]` とINT8量子化を確認しています。
 
-256x256モデルのVela summaryは、NPU演算70件、推定推論時間約5.99 ms（500 MHz設定）、SRAM 1216.59 KiB、off-chip flash 494.66 KiB、76,047,616 MACsです。Vela済みモデルは `ethos-u` カスタム演算を含むため、ホストのTensorFlow Lite Interpreterでは実行できず、Ethos-Uランタイム上で検証します。
+negative画像を追加した前回の再学習モデルは `build/ml/fish_bbox_256_retrained/` に保存しています。COCO test splitは161画像（positive 113、negative 48）です。
+
+- Float positive-only bbox: `mean_iou=0.233028`、`iou50=0.141593`
+- Full INT8 positive-only bbox: `mean_iou=0.141839`、`iou50=0.070796`
+- Float confidence（positive / negative平均）: `0.993069 / 0.015325`
+- INT8 confidence（positive / negative平均）: `0.985032 / 0.016602`
+- confidence `0.5`でのtest結果: Float/INT8ともpositive recall `113/113`、negative false positive `0/48`
+
+全体IoUはnegative画像のbboxを0として計算するため、bbox位置精度の比較にはpositive-only値を使用します。評価詳細は `build/ml/fish_bbox_256_retrained/evaluation.json`、可視化は `build/ml/fish_bbox_256_retrained/test_visualizations_20/contact_sheet_20.jpg` に保存しています。この前回モデルは現在のapp配列には使用していません。実機投入前にはEthos-Uランタイム上の結果も確認します。
+
+今回、Adamの学習率をヘッド `1e-4`、fine-tune `1e-6` に下げて再学習したモデルは `build/ml/fish_bbox_256_retrained_lr1e4/` に保存しています。同じtest splitで次の結果になりました。
+
+- Float positive-only bbox: `mean_iou=0.295863`、`iou50=0.203540`
+- Full INT8 positive-only bbox: `mean_iou=0.245458`、`iou50=0.115044`
+- Float confidence（positive / negative平均）: `0.996647 / 0.014553`
+- INT8 confidence（positive / negative平均）: `0.994573 / 0.023031`
+- confidence `0.5`でのtest結果: Float/INT8ともpositive recall `113/113`、negative false positive `0/48`
+
+低学習率モデルの評価詳細は `build/ml/fish_bbox_256_retrained_lr1e4/evaluation.json`、Vela済みTFLiteは `build/ml/fish_bbox_256_retrained_lr1e4/vela/fish_bbox_int8_vela.tflite`、専用C++配列は同ディレクトリの `fish_bbox_model_data.cc/.hpp` です。Vela済みモデルは `app/src/ai/model/fish_bbox_model_data.cc` へ組み込み済みで、公開シンボルは既存の `g_fish_bbox_model_data` を維持しています。
+
+低学習率256x256モデルのVela summaryは、NPU演算70件、推定推論時間約5.99 ms（500 MHz設定）、SRAM 1216.59 KiB、off-chip flash 494.78 KiB、76,047,616 MACsです。Vela済みモデルは `ethos-u` カスタム演算を含むため、ホストのTensorFlow Lite Interpreterでは実行できず、Ethos-Uランタイム上で検証します。
 
 ## 現在のデータについて
 
-Roboflowデータセットは `train=781`、`valid=223`、`test=111` 画像で、COCOラベルを直接読み込みます。学習結果の `test_metrics.json` には、損失に加えてbboxの `mean_iou` と `iou50` を保存します。`test_loss` だけでは位置検出性能を判断できないため、IoUも確認してください。
+今回のRoboflowデータセットは `train=3405`、`valid=324`、`test=161` 画像で、COCOラベルを直接読み込みます。negative画像はそれぞれ990、95、48枚です。学習結果の `test_metrics.json` には、損失に加えてbboxの `mean_iou` と `iou50` を保存します。`test_loss` だけでは位置検出性能を判断できないため、positive-only IoUとconfidenceのpositive/negative分離も確認してください。

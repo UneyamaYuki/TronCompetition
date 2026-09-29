@@ -205,7 +205,7 @@ const vin_extended_cfg_t g_vin0_cfg_extend =
   .input_ctrl.cfg_bits.lut_enable = 0,
   .input_ctrl.cfg_bits.dithering_direction = false,
   .input_ctrl.cfg_bits.yuv444_conversion = VIN_YUV444_CONVERSION_MODE_DATA_EXTEND,
-  .input_ctrl.cfg_bits.scaling_enable = false,
+        .input_ctrl.cfg_bits.scaling_enable = true,
   .input_ctrl.cfg_bits.pixel_data_clipping = VIN_PIXEL_DATA_CLIPPING_DEFAULT,
 
   .input_ctrl.preclip.line_start = 0,
@@ -252,14 +252,14 @@ const vin_extended_cfg_t g_vin0_cfg_extend =
   .conversion_data.uds_ctrl_bits.bilinear_advanced = 1,
   .conversion_data.uds_ctrl_bits.scale_up_pixel_count = 0,
 
-  .conversion_data.uds_scale_bits.vertical_mask = 4096,
-  .conversion_data.uds_scale_bits.horizontal_mask = 4096,
+        .conversion_data.uds_scale_bits.vertical_mask = 5120,
+        .conversion_data.uds_scale_bits.horizontal_mask = 6553,
 
-  .conversion_data.uds_bwidth_bits.bwidth_v = 64,
-  .conversion_data.uds_bwidth_bits.bwidth_h = 64,
+        .conversion_data.uds_bwidth_bits.bwidth_v = 51,
+        .conversion_data.uds_bwidth_bits.bwidth_h = 40,
 
-  .conversion_data.uds_clipping_bits.cl_vsize = 600,
-  .conversion_data.uds_clipping_bits.cl_hsize = 1024,
+        .conversion_data.uds_clipping_bits.cl_vsize = 480,
+        .conversion_data.uds_clipping_bits.cl_hsize = 640,
 
   .conversion_data.rgb_to_yuv_conversion_settings[0].setting_1_bits.lrp = 263,
   .conversion_data.rgb_to_yuv_conversion_settings[0].setting_2_bits.lgp = 516,

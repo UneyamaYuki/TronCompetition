@@ -84,7 +84,14 @@ WEAK_FUNC EXPORT void knl_memmanage_handler(void)
  */
 WEAK_FUNC EXPORT void knl_busfault_handler(void)
 {
+#if (USE_EXCEPTION_DBG_MSG  && USE_TMONITOR)
+	UW cfsr = *(_UW *)SCB_CFSR;
+	UW bfar = *(_UW *)SCB_BFAR;
+	UW shcsr = *(_UW *)SCB_SHCSR;
+	tm_printf((UB *)"Bus Fault CFSR:%x BFAR:%x SHCSR:%x\n", cfsr, bfar, shcsr);
+#else
 	EXCEPTION_DBG_MSG("Bus Fault\n");
+#endif
 	Asm("bkpt 0");
 	while(1);
 }
