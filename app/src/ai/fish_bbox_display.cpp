@@ -32,7 +32,71 @@ constexpr uint16_t kStatusMonitoringColor = 0x07FFU;
 constexpr uint16_t kStatusCompletedColor = 0x07E0U;
 constexpr uint16_t kStatusAlertColor = 0xF800U;
 constexpr uint16_t kStatusUnknownColor = 0xFFE0U;
+constexpr uint16_t kStatusTextColor = 0xFFFFU;
+constexpr uint32_t kStatusBandTop = 4U;
+constexpr uint32_t kStatusBandBottom = 39U;
+constexpr uint32_t kFontScale = 2U;
+constexpr uint32_t kFontWidth = 5U;
+constexpr uint32_t kFontHeight = 7U;
+constexpr uint32_t kFontAdvance = (kFontWidth + 1U) * kFontScale;
 constexpr bsp_io_port_pin_t kBacklightPin = BSP_IO_PORT_05_PIN_14;
+
+constexpr uint8_t kFont5x7[40][kFontHeight] = {
+    {0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11},
+    {0x1e, 0x11, 0x11, 0x1e, 0x11, 0x11, 0x1e},
+    {0x0e, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0e},
+    {0x1e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1e},
+    {0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x1f},
+    {0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x10},
+    {0x0e, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0f},
+    {0x11, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11},
+    {0x0e, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0e},
+    {0x01, 0x01, 0x01, 0x01, 0x11, 0x11, 0x0e},
+    {0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11},
+    {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f},
+    {0x11, 0x1b, 0x15, 0x15, 0x11, 0x11, 0x11},
+    {0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11},
+    {0x0e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e},
+    {0x1e, 0x11, 0x11, 0x1e, 0x10, 0x10, 0x10},
+    {0x0e, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0d},
+    {0x1e, 0x11, 0x11, 0x1e, 0x14, 0x12, 0x11},
+    {0x0f, 0x10, 0x10, 0x0e, 0x01, 0x01, 0x1e},
+    {0x1f, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04},
+    {0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e},
+    {0x11, 0x11, 0x11, 0x11, 0x11, 0x0a, 0x04},
+    {0x11, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0a},
+    {0x11, 0x11, 0x0a, 0x04, 0x0a, 0x11, 0x11},
+    {0x11, 0x11, 0x0a, 0x04, 0x04, 0x04, 0x04},
+    {0x1f, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1f},
+    {0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e},
+    {0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e},
+    {0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f},
+    {0x1e, 0x01, 0x01, 0x0e, 0x01, 0x01, 0x1e},
+    {0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02},
+    {0x1f, 0x10, 0x10, 0x1e, 0x01, 0x01, 0x1e},
+    {0x06, 0x08, 0x10, 0x1e, 0x11, 0x11, 0x0e},
+    {0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08},
+    {0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e},
+    {0x0e, 0x11, 0x11, 0x0f, 0x01, 0x02, 0x0c},
+    {0x00, 0x00, 0x0c, 0x00, 0x0c, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f},
+    {0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+};
+
+constexpr uint8_t kLowercaseUnitFont[11][kFontHeight] = {
+    {0x00, 0x00, 0x0e, 0x01, 0x0f, 0x11, 0x0f}, // a
+    {0x01, 0x01, 0x0f, 0x11, 0x11, 0x13, 0x0d}, // d
+    {0x00, 0x11, 0x11, 0x0f, 0x01, 0x11, 0x0e}, // y
+    {0x10, 0x10, 0x1e, 0x11, 0x11, 0x11, 0x11}, // h
+    {0x00, 0x00, 0x0e, 0x11, 0x11, 0x11, 0x0e}, // o
+    {0x00, 0x00, 0x11, 0x11, 0x11, 0x13, 0x0d}, // u
+    {0x00, 0x00, 0x16, 0x19, 0x10, 0x10, 0x10}, // r
+    {0x00, 0x00, 0x1a, 0x15, 0x15, 0x15, 0x15}, // m
+    {0x00, 0x04, 0x00, 0x0c, 0x04, 0x04, 0x0e}, // i
+    {0x00, 0x00, 0x1e, 0x11, 0x11, 0x11, 0x11}, // n
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // unused
+};
 
 uint16_t g_display_framebuffers[2][kPanelHeight][kPanelWidth]
     BSP_ALIGN_VARIABLE(64) BSP_PLACE_IN_SECTION(BSP_UNINIT_SECTION_PREFIX ".sdram_noinit_nocache");
@@ -202,6 +266,149 @@ void draw_box(uint16_t *framebuffer, uint32_t left, uint32_t top, uint32_t right
         fill_vertical_line(framebuffer, left + line, top, bottom, color);
         fill_vertical_line(framebuffer, right >= line ? right - line : 0U, top, bottom, color);
     }
+}
+
+const uint8_t *font_glyph(char character)
+{
+    if (character >= 'A' && character <= 'Z')
+    {
+        return kFont5x7[static_cast<uint32_t>(character - 'A')];
+    }
+    if (character >= '0' && character <= '9')
+    {
+        return kFont5x7[26U + static_cast<uint32_t>(character - '0')];
+    }
+    switch (character)
+    {
+    case 'a': return kLowercaseUnitFont[0];
+    case 'd': return kLowercaseUnitFont[1];
+    case 'y': return kLowercaseUnitFont[2];
+    case 'h': return kLowercaseUnitFont[3];
+    case 'o': return kLowercaseUnitFont[4];
+    case 'u': return kLowercaseUnitFont[5];
+    case 'r': return kLowercaseUnitFont[6];
+    case 'm': return kLowercaseUnitFont[7];
+    case 'i': return kLowercaseUnitFont[8];
+    case 'n': return kLowercaseUnitFont[9];
+    default: break;
+    }
+    if (character == ':')
+    {
+        return kFont5x7[36U];
+    }
+    if (character == '_')
+    {
+        return kFont5x7[37U];
+    }
+    if (character == '-')
+    {
+        return kFont5x7[38U];
+    }
+    return kFont5x7[39U];
+}
+
+void draw_status_text(uint16_t *framebuffer, uint32_t x, uint32_t y,
+                     const char *text, uint16_t color)
+{
+    if (text == nullptr)
+    {
+        return;
+    }
+
+    for (const char *character = text; *character != '\0'; ++character)
+    {
+        const uint8_t *glyph = font_glyph(*character);
+        for (uint32_t row = 0U; row < kFontHeight; ++row)
+        {
+            for (uint32_t column = 0U; column < kFontWidth; ++column)
+            {
+                if ((glyph[row] & (1U << (kFontWidth - 1U - column))) == 0U)
+                {
+                    continue;
+                }
+                for (uint32_t scale_y = 0U; scale_y < kFontScale; ++scale_y)
+                {
+                    for (uint32_t scale_x = 0U; scale_x < kFontScale; ++scale_x)
+                    {
+                        const uint32_t pixel_x = x + column * kFontScale + scale_x;
+                        const uint32_t pixel_y = y + row * kFontScale + scale_y;
+                        if (pixel_x < kCameraWidth && pixel_y < kCameraHeight)
+                        {
+                            framebuffer[pixel_y * kPanelWidth + pixel_x] = color;
+                        }
+                    }
+                }
+            }
+        }
+        x += kFontAdvance;
+        if (x >= kCameraWidth)
+        {
+            return;
+        }
+    }
+}
+
+void append_time_unit(char *text, size_t capacity, uint32_t value, const char *unit)
+{
+    const size_t length = std::strlen(text);
+    char digits[10]{};
+    size_t digit_count = 0U;
+    do
+    {
+        digits[digit_count++] = static_cast<char>('0' + (value % 10U));
+        value /= 10U;
+    } while (value != 0U && digit_count < sizeof(digits));
+
+    const size_t unit_length = std::strlen(unit);
+    if (length + 1U + digit_count + unit_length >= capacity)
+    {
+        return;
+    }
+
+    size_t output_length = length;
+    text[output_length++] = ' ';
+    for (size_t index = 0U; index < digit_count; ++index)
+    {
+        text[output_length++] = digits[digit_count - 1U - index];
+    }
+    std::memcpy(text + output_length, unit, unit_length);
+    output_length += unit_length;
+    text[output_length] = '\0';
+}
+
+void append_elapsed_time(char *text, size_t capacity, uint32_t seconds)
+{
+    const uint32_t total_minutes = seconds / 60U;
+    append_time_unit(text, capacity, total_minutes / (24U * 60U), "day");
+    append_time_unit(text, capacity, (total_minutes / 60U) % 24U, "hour");
+    append_time_unit(text, capacity, total_minutes % 60U, "min");
+}
+
+void draw_feeding_status(uint16_t *framebuffer, const FeedingMonitorResult &feeding)
+{
+    for (uint32_t y = kStatusBandTop; y <= kStatusBandBottom; ++y)
+    {
+        fill_horizontal_line(framebuffer, 0U, kCameraWidth - 1U, y, 0x0000U);
+    }
+
+    char feeding_text[64] = "FEED: ";
+    std::strncat(feeding_text, feeding_state_name(feeding.state),
+                 sizeof(feeding_text) - std::strlen(feeding_text) - 1U);
+    draw_status_text(framebuffer, 8U, 6U, feeding_text, kStatusTextColor);
+
+    char gap_text[64] = "GAP: ";
+    std::strncat(gap_text, feeding_gap_state_name(feeding.gap_state),
+                 sizeof(gap_text) - std::strlen(gap_text) - 1U);
+    if (feeding.gap_state == FeedingGapState::TimeUnknown)
+    {
+        std::strncat(gap_text, " --day --hour --min",
+                     sizeof(gap_text) - std::strlen(gap_text) - 1U);
+    }
+    else
+    {
+        append_elapsed_time(gap_text, sizeof(gap_text), feeding.seconds_since_feeding);
+    }
+    draw_status_text(framebuffer, 8U, 22U, gap_text, kStatusTextColor);
 }
 
 void report_display_frame_diagnostics(const uint16_t *framebuffer, uint32_t back_buffer)
@@ -424,6 +631,7 @@ void fish_bbox_display_render(const uint8_t *frame,
     fill_horizontal_line(framebuffer, 0U, kCameraWidth - 1U, 0U, status_color);
     fill_horizontal_line(framebuffer, 0U, kCameraWidth - 1U, 1U, status_color);
     fill_horizontal_line(framebuffer, 0U, kCameraWidth - 1U, 2U, status_color);
+    draw_feeding_status(framebuffer, feeding);
     report_display_frame_diagnostics(framebuffer, back_buffer);
 
     if (change_display_buffer(framebuffer))

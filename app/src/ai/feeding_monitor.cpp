@@ -12,7 +12,7 @@ constexpr uint16_t kScale = 4U;
 constexpr uint16_t kMinimumArea = 3U;
 constexpr uint16_t kMaximumArea = 180U;
 constexpr uint16_t kSceneMotionLimit = 2400U;
-constexpr float kAssociationDistance = 12.0f;
+constexpr float kFragmentMergeDistance = 12.0f;
 constexpr float kMinimumSinkSpeed = 8.0f;
 constexpr float kMaximumSinkSpeed = 220.0f;
 constexpr float kMaximumHorizontalSpeed = 100.0f;
@@ -42,6 +42,15 @@ float squared_distance(float first_x, float first_y, float second_x, float secon
     const float delta_x = first_x - second_x;
     const float delta_y = first_y - second_y;
     return delta_x * delta_x + delta_y * delta_y;
+}
+
+float temporal_association_distance(uint32_t elapsed_ms)
+{
+    const float seconds = static_cast<float>(elapsed_ms) / 1000.0f;
+    const float maximum_displacement = std::sqrt(
+        kMaximumSinkSpeed * kMaximumSinkSpeed +
+        kMaximumHorizontalSpeed * kMaximumHorizontalSpeed) * seconds;
+    return std::max(kFragmentMergeDistance, maximum_displacement);
 }
 }
 
@@ -96,7 +105,7 @@ FoodObservation FeedingMonitor::detect_food(const uint8_t *rgb565, size_t stride
             break;
         }
     }
-    threshold = std::max<uint8_t>(threshold, 10U);
+    threshold = std::min<uint8_t>(std::max<uint8_t>(threshold, 10U), 64U);
 
     uint16_t moving_pixels = 0U;
     for (uint16_t y = 0; y < kGridHeight; ++y)
@@ -206,7 +215,7 @@ FoodObservation FeedingMonitor::detect_food(const uint8_t *rgb565, size_t stride
             const float second_x = static_cast<float>(components[second].sum_x) / components[second].area;
             const float second_y = static_cast<float>(components[second].sum_y) / components[second].area;
             if (squared_distance(first_x, first_y, second_x, second_y) <=
-                (kAssociationDistance / kScale) * (kAssociationDistance / kScale))
+                (kFragmentMergeDistance / kScale) * (kFragmentMergeDistance / kScale))
             {
                 components[first].area = static_cast<uint16_t>(components[first].area + components[second].area);
                 components[first].sum_x += components[second].sum_x;
@@ -225,15 +234,22 @@ FoodObservation FeedingMonitor::detect_food(const uint8_t *rgb565, size_t stride
         {
             continue;
         }
+        if ((!has_track_ || !food_confirmed_) && component.warm_pixels == 0U)
+        {
+            continue;
+        }
         const float center_x = static_cast<float>(component.sum_x) / component.area * kScale;
         const float center_y = static_cast<float>(component.sum_y) / component.area * kScale;
         const float warm_bonus = static_cast<float>(component.warm_pixels) * 200.0f;
         const float score = has_track_
             ? warm_bonus - squared_distance(center_x, center_y, tracked_food_.x, tracked_food_.y)
             : warm_bonus + static_cast<float>(component.intensity) / component.area;
+        const float association_distance = has_track_
+            ? temporal_association_distance(elapsed_ms)
+            : kFragmentMergeDistance;
         const bool associated = !has_track_ ||
             squared_distance(center_x, center_y, tracked_food_.x, tracked_food_.y) <=
-                kAssociationDistance * kAssociationDistance;
+                association_distance * association_distance;
         if (associated && score > best_score)
         {
             best_score = score;
@@ -281,7 +297,7 @@ FeedingMonitorResult FeedingMonitor::process(const uint8_t *rgb565, size_t strid
                                              uint32_t monotonic_ms, const FishObservation &fish)
 {
     bool scene_valid = false;
-    const uint32_t elapsed_ms = previous_frame_ms_ == 0U ? 0U : monotonic_ms - previous_frame_ms_;
+    const uint32_t elapsed_ms = has_previous_frame_ ? monotonic_ms - previous_frame_ms_ : 0U;
     FoodObservation food = detect_food(rgb565, stride_bytes, elapsed_ms, &scene_valid);
     previous_frame_ms_ = monotonic_ms;
     bool completed = false;
@@ -295,21 +311,23 @@ FeedingMonitorResult FeedingMonitor::process(const uint8_t *rgb565, size_t strid
         disappearance_start_ms_ = 0U;
         if (has_track_ && !food_confirmed_)
         {
-            consecutive_track_frames_ = food.sinking ? static_cast<uint8_t>(consecutive_track_frames_ + 1U) : 1U;
+            consecutive_sink_steps_ = food.sinking
+                ? static_cast<uint8_t>(consecutive_sink_steps_ + 1U)
+                : 0U;
         }
         else if (!has_track_)
         {
-            consecutive_track_frames_ = 1U;
+            consecutive_sink_steps_ = 0U;
         }
         has_track_ = true;
         tracked_food_ = food;
         last_track_ms_ = monotonic_ms;
-        if (food_confirmed_ || consecutive_track_frames_ >= 3U)
+        if (food_confirmed_ || consecutive_sink_steps_ >= 2U)
         {
             food_confirmed_ = true;
             state_ = FeedingState::FoodConfirmed;
         }
-        else if (consecutive_track_frames_ == 2U)
+        else if (consecutive_sink_steps_ > 0U)
         {
             state_ = FeedingState::Tracking;
         }
@@ -352,6 +370,7 @@ FeedingMonitorResult FeedingMonitor::process(const uint8_t *rgb565, size_t strid
             }
             has_track_ = false;
             food_confirmed_ = false;
+            consecutive_sink_steps_ = 0U;
             fish_was_approaching_ = false;
         }
     }
@@ -360,6 +379,7 @@ FeedingMonitorResult FeedingMonitor::process(const uint8_t *rgb565, size_t strid
         state_ = FeedingState::Unknown;
         has_track_ = false;
         food_confirmed_ = false;
+        consecutive_sink_steps_ = 0U;
         fish_was_approaching_ = false;
     }
     else if (!has_track_)

@@ -92,7 +92,7 @@ private:
     FeedingState state_ = FeedingState::Idle;
     FoodObservation tracked_food_{};
     float previous_fish_distance_ = 0.0f;
-    uint8_t consecutive_track_frames_ = 0U;
+    uint8_t consecutive_sink_steps_ = 0U;
     uint32_t previous_frame_ms_ = 0U;
     uint32_t last_track_ms_ = 0U;
     uint32_t disappearance_start_ms_ = 0U;
