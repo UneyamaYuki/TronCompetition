@@ -1,16 +1,25 @@
 # TronCompetition
 
-## Overview
+EK-RA8P1上でカメラ映像から金魚の給餌行動を監視する組み込みシステムです。
 
+## ディレクトリ構成
 
-## Requirements
+```text
+.
+├── app/             # 評価対象のメインアプリ（カメラ、NPU、給餌判定、LCD）
+├── data_collector/  # 学習用データ収集ファームウェアとPCツール
+├── model/           # モデル学習、変換、PC上のオフライン評価
+├── build/           # ビルド済みモデルなどの生成物
+├── dataset/         # 学習・評価用データ
+├── docs/            # 実装計画、評価手順などの文書
+├── test/            # テスト用プロジェクト
+└── test_RTOS/       # μT-Kernel関連のテスト用プロジェクト
+```
 
+## 開発・評価の入口
 
-## Setup
+- [実装計画](docs/実装計画.md): システム構成、モデル、RTOS、LCD表示の実装方針
+- [評価手順](docs/評価手順.md): EK-RA8P1実機でのビルド、書き込み、LCD表示の確認方法
 
-
-## Usage
-
-
-## License
+実機評価では`app/`のみを使用します。`data_collector/`と`model/`は開発・データ収集用です。
 

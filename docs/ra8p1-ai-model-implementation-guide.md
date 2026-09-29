@@ -34,15 +34,17 @@ Renesas `ra-fsp-examples` の現在の `master` ブランチの `example_project
 - `AllocateTensors()` と `Invoke()` による推論
 - テンソルの型、量子化パラメータ、アリーナ使用量の表示
 
-### 本プロジェクトでの推奨方針
+### 本プロジェクトでの現行方針
 
-最初の給餌構成は、餌を直接学習する画像分類モデルではなく、**全画面からの初期候補抽出、前フレーム差分による餌候補追跡**と**単一金魚のボックス回帰モデル**を組み合わせます。
+現在の実装では、単一ボックス回帰モデルから **YOLOv5sの金魚検出モデル**へ変更しています。学習・量子化・Vela最適化済みのモデルを実機へ組み込み、推論結果の餌追跡と給餌判定は従来どおりCPU側で行います。
 
 ```text
-入力: 256x256、グレースケール、INT8
-出力: 1匹分のボックス回帰
-    x, y, w, h, confidence
+入力:  [1, 256, 256, 3] uint8
+出力:  [1, 4032, 6] uint8
+       4032個の候補 × (center_x, center_y, width, height, objectness, class_score)
 ```
+
+実機の後処理では、各候補を出力テンソルの量子化パラメータで実数化し、`objectness * class_score`を検出スコアとします。スコア0.5未満を除外した後、IoU 0.45のNMSを行い、画面中心に最も近い候補を金魚ボックスとして採用します。YOLOv5sは餌の確定判定を行うモデルではありません。
 
 餌の物体検出ヘッドは持たせません。色成分や単一フレームの差分は初期候補の発見にだけ使い、餌の確定には前フレーム差分、連結成分、複数フレームの下降軌跡を必須とします。確定した餌だけを、金魚ボックスとの距離・接近・消失を判定するCPU側の状態機械へ渡します。
 
@@ -112,25 +114,26 @@ test/example_projects/ek_ra8p1/ethos_u55_face_detection/
 実行経路は次のとおりです。
 
 ```text
-face_detection_entry()
-  ├─ TERM_INIT()
-  ├─ RM_ETHOSU_Open(&g_rm_ethosu0_ctrl, &g_rm_ethosu0_cfg)
-  └─ MainLoop()
-       ├─ tensor arenaを用意
-       ├─ GetModelPointer() / GetModelLen()
-       ├─ Model::Init()
-       │    ├─ tflite::GetModel()
-       │    ├─ schema version確認
-       │    ├─ 必要な演算子をresolverへ登録
-       │    ├─ MicroAllocator::Create()
-       │    ├─ MicroInterpreter生成
-       │    └─ AllocateTensors()
-       ├─ カメラまたは画像を前処理
-       ├─ Invoke()
-       └─ 出力を後処理
+fish_bbox_npu_test_task()
+    ├─ RM_ETHOSU_Open(&g_rm_ethosu0_ctrl, &g_rm_ethosu0_cfg)
+    ├─ fish_bbox_model_storage_start()
+    │    ├─ R_OSPI_B_Open()でOSPI-Bを初期化
+    │    └─ CS1のメモリマッピングを有効化
+    ├─ g_fish_bbox_model_dataを読み出す
+    ├─ g_model_sdram_copyへモデル全量をコピー
+    ├─ tflite::GetModel(g_model_sdram_copy)
+    ├─ schema version確認
+    ├─ 必要な演算子をresolverへ登録
+    ├─ MicroInterpreter生成
+    ├─ AllocateTensors()
+    └─ 推論ループ
+             ├─ OV5640/VINの640x480 RGB565を256x256 RGBへ前処理
+             ├─ Invoke()
+             ├─ YOLO候補の量子化解除、閾値処理、NMS
+             └─ 金魚ボックスを給餌状態機械へ渡す
 ```
 
-`common/Model.cc`の `Model::Init()` は、金魚ボックス回帰モデルでもそのまま参考になります。特に次を起動時に表示する設計が重要です。
+`common/Model.cc`の `Model::Init()` は、YOLOv5sモデルでもTFLM初期化の参考になります。特に次を起動時に表示する設計が重要です。
 
 - 入力テンソルの型
 - 入力テンソルの形状
@@ -155,14 +158,18 @@ AddConcatenation();
 AddEthosU();
 ```
 
-金魚ボックス回帰モデルでは、実際のTFLiteモデルを調べた後に、必要なものだけを登録します。たとえば次のような構成です。
+現行のYOLOv5s Velaモデルでは、`app/src/ai/fish_bbox_npu_test.cpp`の`add_model_operators()`に次の9演算子を登録しています。
 
 ```cpp
-AddConv2D();
-AddDepthwiseConv2D();
-AddAveragePool2D();
-AddReshape();
-AddFullyConnected();
+resolver.AddAdd();
+resolver.AddConcatenation();
+resolver.AddConv2D();
+resolver.AddDepthwiseConv2D();
+resolver.AddFullyConnected();
+resolver.AddLogistic();
+resolver.AddMean();
+resolver.AddMul();
+resolver.AddEthosU();
 ```
 
 `AllOpsResolver`を使うと動作確認は簡単ですが、コードサイズが増えます。本番ではモデルの演算子一覧とresolverの登録一覧を一致させます。
@@ -177,7 +184,7 @@ Ethos-U演算子は、NPUを使うビルドでだけ登録します。
 #endif
 ```
 
-### 2.4 モデルは学習済みバイナリではなくC配列として組み込む
+### 2.4 モデルの組み込みと外部FlashからSDRAMへのロード
 
 顔検出サンプルは、Vela出力のTFLiteを次のようなC++ファイルに変換しています。
 
@@ -185,14 +192,25 @@ Ethos-U演算子は、NPUを使うビルドでだけ登録します。
 generated/object_detection/src/yolo-fastest_192_face_v4_vela.cc
 ```
 
-このファイルはモデルデータと、モデル先頭アドレスおよびサイズを返す関数を提供します。給餌モデルでは次の構成を推奨します。
+本プロジェクトでは、Vela出力を`app/src/ai/model/fish_bbox_model_data.cc`へC++配列として生成します。ヘッダーの`g_fish_bbox_model_data`と`g_fish_bbox_model_data_len`を、`fish_bbox_npu_test.cpp`から参照します。
 
 ```text
 app/src/ai/model/fish_bbox_model_data.cc
 app/src/ai/model/fish_bbox_model_data.hpp
+app/src/ai/ospi_model_storage.cpp
+app/src/ai/ospi_model_storage.hpp
 ```
 
-モデルは書き込み禁止の領域へ置き、実行時に変更しないでください。モデルが大きくなった場合は、コードフラッシュへの直置き、OSPI XIP、OSPIからSDRAMへのコピーを比較します。
+モデル配列は次の属性で固定配置します。
+
+```cpp
+alignas(16) const std::uint8_t g_fish_bbox_model_data[]
+    __attribute__((section(".ospi0_cs1"), used)) = { /* Vela済みTFLite */ };
+```
+
+現行のリンク結果では、モデルはOSPI0 CS1のメモリマップ先頭`0x90000000`に配置され、サイズは`0x5f3de0` bytes（6,241,760 bytes）です。`OSPI_B_CFG_XIP_SUPPORT_ENABLE`は`0`なので、これはモデルをOSPI上で直接実行するXIP構成ではありません。起動時に`fish_bbox_model_storage_start()`でCS1の読み出しマッピングを有効化し、`g_model_sdram_copy`（非キャッシュSDRAM、容量7 MiB）へ全量コピーした後、そのSDRAMアドレスをTFLMへ渡します。
+
+リンカが持つ`.sdram_from_ospi0_cs1`はFSPの一般的な自動コピー用セクションです。今回のモデルはそこへ置かず、`.ospi0_cs1`からアプリケーションの`copy_model_to_sdram()`で明示的にコピーします。この2つを同じ仕組みとして説明してはいけません。
 
 ## 3. データセットの現状と扱い
 
@@ -265,6 +283,8 @@ ImageUtils.cc:         uint8 -> int8 (value - 128)
 Model::Invoke():       int8 tensor -> inference
 ```
 
+上記は顔検出サンプル固有の入力経路です。本番のYOLOv5s実装では、サンプルのグレースケール化や`int8`変換を使用せず、OV5640のRGB565からRGB 3チャンネルの`uint8`入力を作ります。
+
 #### 給餌モデルへ適用する場合
 
 給餌モデルでは、サンプルの静的C配列方式を実機へ組み込んだ既知画像によるスモークテストにだけ使います。PC上では前処理と量子化の数値比較だけを行い、通常の検出は次の実機経路で実行します。
@@ -333,23 +353,20 @@ session_id,sequence,timestamp_ms,fish_x,fish_y,fish_w,fish_h,fish_visible,event_
 
 ## 4. 学習モデルの設計
 
-### 4.1 Phase 1のモデル
+### 4.1 現行のYOLOv5sモデル
 
-最初は、単一の金魚を直接回帰し、演算子が少ないモデルにします。餌はこのモデルへ入力せず、フレーム差分と連結成分追跡で扱います。
+現在の実機モデルは、256x256 RGB入力のYOLOv5sです。学習側のモデル名は`yolov5s_256_RGB`、実機へ渡すファイルはFull UINT8量子化後にVela最適化した`best-int8_vela.tflite`です。
 
 ```text
-Input       [1, 256, 256, 1] float32  (学習時)
-Conv2D      16ch, 3x3, stride 2, ReLU
-Depthwise   16ch, 3x3, stride 2, ReLU
-Conv2D      32ch, 3x3, stride 2, ReLU
-Depthwise   32ch, 3x3, stride 2, ReLU
-Conv2D      64ch, 3x3, stride 1, ReLU
-Flatten
- Dense       5 values: x, y, w, h, confidence
-Output      [1, 5] float32  (学習時)
+Input       [1, 256, 256, 3] uint8
+Model       YOLOv5s、Vela最適化済み
+Output      [1, 4032, 6] uint8
+            6 values: center_x, center_y, width, height, objectness, class_score
 ```
 
-`x`、`y`、`w`、`h`は画像サイズで正規化した値とします。`x`と`y`はbbox左上座標です。`confidence`を含む5値を出力し、最終出力はlinearとしてCPU側で範囲処理します。`GlobalAveragePooling2D`やSoftmaxは初期構成に追加しません。
+出力の座標は256x256 letterbox画像上の正規化座標として扱います。後処理は、出力の`scale`と`zero_point`を使って値を実数化し、`objectness * class_score`をスコアにします。スコア閾値は0.5、NMSのIoU閾値は0.45です。NMS後に画面中心へ最も近い候補を1匹分の金魚ボックスとして採用します。
+
+入力元の640x480画像は、256x192へアスペクト比を保って縮小し、上下に32pxの黒帯を追加します。したがってカメラ座標へ戻す場合、`x`はそのまま、`y`は`(y * 256 - 32) / 192`、`h`は`h * 256 / 192`としてから範囲を制限します。
 
 学習時の損失は、confidenceの有無とボックス座標誤差を組み合わせます。金魚が見えにくいフレームは `fish_visible=0` として学習・評価から分離します。
 
@@ -365,7 +382,7 @@ Output      [1, 5] float32  (学習時)
 6. 金魚近傍で確定済み餌が消失し、一定時間再出現しなければ `feeding_completed` とする
 7. 底面残留、遮蔽、全体振動、対応付け失敗、餌確定前の消失を `unknown` とする
 
-RNN、3D-CNN、複数フレーム入力、餌の検出ヘッドは初期構成に追加しません。
+RNN、3D-CNN、複数フレーム入力、餌の検出ヘッドは実機モデルへ追加していません。餌の沈下・接近・消失・非再出現は、YOLOv5sの出力を受け取ったCPU側の状態機械で判定します。
 
 ## 5. ローカル学習環境
 
@@ -395,21 +412,21 @@ TensorFlowが現在のPythonバージョンに対応しない場合は、エラ�
 vela --help
 ```
 
-## 6. TFLite変換とFull INT8量子化
+## 6. TFLite変換とFull UINT8量子化
 
 ### 6.1 量子化の前提
 
-Ethos-U55へ載せるモデルは、まずFull INT8 TFLiteにします。Velaに浮動小数点モデルを渡して解決することを前提にしません。
+Ethos-U55へ載せるモデルは、まずFull UINT8 TFLiteにします。Velaに浮動小数点モデルを渡して解決することを前提にしません。現行ファームウェアは入力・出力とも`kTfLiteUInt8`を要求します。
 
 学習時の前処理とファームウェアの前処理を一致させます。
 
 ```text
 JPEG/RGB565/YUV422
-  -> RGB
-  -> グレースケール
-    -> 同じ補間方法で256x256
-  -> float32の0.0から1.0
-  -> representative datasetで量子化
+    -> RGB
+    -> 640x480から256x192へリサイズ
+    -> 上下32pxを0でパディングして256x256 RGB letterbox
+    -> float32の0.0から1.0
+    -> representative datasetでUINT8量子化
 ```
 
 学習・代表データ・実機の3箇所で、次を一致させます。
@@ -417,7 +434,7 @@ JPEG/RGB565/YUV422
 - クロップ範囲
 - リサイズ方法
 - RGB565のバイト順
-- グレースケール変換式
+- RGB各チャンネルの変換式
 - 画素値の範囲
 - チャネル順
 - 入力テンソルの形状
@@ -431,10 +448,10 @@ import pathlib
 import numpy as np
 import tensorflow as tf
 
-MODEL_PATH = "fish_bbox_float.keras"
-OUTPUT_PATH = "fish_bbox_int8.tflite"
+MODEL_PATH = "yolov5s_256_RGB_float.keras"
+OUTPUT_PATH = "best-int8.tflite"
 
-# ここは学習時と同じ処理で、[1, 256, 256, 1] float32を返す。
+# ここは学習時と同じ処理で、[1, 256, 256, 3] float32を返す。
 def representative_dataset():
     for image in load_calibration_images():
         yield [image.astype(np.float32)]
@@ -444,8 +461,8 @@ converter = tf.lite.TFLiteConverter.from_keras_model(model)
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
 converter.representative_dataset = representative_dataset
 converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-converter.inference_input_type = tf.int8
-converter.inference_output_type = tf.int8
+converter.inference_input_type = tf.uint8
+converter.inference_output_type = tf.uint8
 
 model_bytes = converter.convert()
 pathlib.Path(OUTPUT_PATH).write_bytes(model_bytes)
@@ -459,7 +476,7 @@ pathlib.Path(OUTPUT_PATH).write_bytes(model_bytes)
 import numpy as np
 import tensorflow as tf
 
-interpreter = tf.lite.Interpreter(model_path="fish_bbox_int8.tflite")
+interpreter = tf.lite.Interpreter(model_path="best-int8.tflite")
 interpreter.allocate_tensors()
 
 input_detail = interpreter.get_input_details()[0]
@@ -467,18 +484,19 @@ output_detail = interpreter.get_output_details()[0]
 print(input_detail)
 print(output_detail)
 
-assert input_detail["dtype"] == np.int8
-assert output_detail["dtype"] == np.int8
+assert input_detail["dtype"] == np.uint8
+assert output_detail["dtype"] == np.uint8
 ```
 
 確認項目は次です。
 
-- 入力形状が `[1, 256, 256, 1]` である
-- 入力dtypeが `int8`
-- 出力dtypeが `int8`
+- 入力形状が `[1, 256, 256, 3]` である
+- 入力dtypeが `uint8`
+- 出力形状が `[1, 4032, 6]` である
+- 出力dtypeが `uint8`
 - scaleが0ではない
 - zero pointがモデルの詳細に存在する
-- `TFLITE_BUILTINS_INT8`だけで変換できている
+- `TFLITE_BUILTINS_INT8`だけで変換できている（テンソルの格納型は`uint8`）
 - float32演算が残っていない
 
 量子化モデルのPC上のオフライン評価結果を、元のfloatモデルと比較します。これは実機検出の代替ではありません。ボックスIoU、中心位置誤差、confidenceの閾値を量子化後のtestセットで決めます。
@@ -490,19 +508,19 @@ assert output_detail["dtype"] == np.int8
 ```powershell
 New-Item -ItemType Directory -Force build/ml/vela | Out-Null
 
-& .venv/Scripts/vela.exe .\build\ml\fish_bbox_int8.tflite `
+& .venv/Scripts/vela.exe .\build\ml\yolov5s_256_RGB_train\weights\best-int8.tflite `
     --accelerator-config=ethos-u55-256 `
     --optimise Performance `
     --config .\test\example_projects\ek_ra8p1\ethos_u55_face_detection\ethos_u55_face_detection_ek_ra8p1_ep\e2studio\src\face_detection_app\resources_downloaded\object_detection\default_vela.ini `
     --memory-mode=Shared_Sram `
     --system-config=Ethos_U55_High_End_Embedded `
-    --output-dir=.\build\ml\vela
+    --output-dir=.\build\ml\yolov5s_256_RGB_train\vela_ra8p1
 ```
 
-顔検出サンプルのREADMEにあるコマンドと同じ考え方です。出力ディレクトリに生成されたVela済み `.tflite` を使います。
+顔検出サンプルのREADMEにあるコマンドと同じ考え方です。出力ディレクトリに生成されたVela済み `.tflite` を使います。現行モデルはUINT8入出力のFull量子化モデルですが、成果物名には学習環境の互換上`best-int8`が残っています。
 
 ```powershell
-Get-ChildItem build/ml/vela -Filter *.tflite
+Get-ChildItem build/ml/yolov5s_256_RGB_train/vela_ra8p1 -Filter *.tflite
 ```
 
 Vela後のモデルについて、次を記録します。
@@ -519,32 +537,29 @@ Velaがモデル全体をNPUへ載せられなくても、未対応演算子はC
 
 ## 8. TFLiteをC配列へ変換する
 
-### 8.1 Linux/WSLで `xxd` を使う場合
+### 8.1 現行モデルをC配列へ変換する
 
-```sh
-xxd -i fish_bbox_int8_vela.tflite > fish_bbox_model_data.cc
+現在の入力ファイルは、Vela出力の次です。
+
+```text
+build/ml/yolov5s_256_RGB_train/vela_ra8p1/best-int8_vela.tflite
 ```
 
-ただし、`xxd -i`の生成シンボル名は入力ファイル名から自動生成されるため、本番コードで使う名前を確認してから整理します。
-
-### 8.2 Windows PowerShellだけで変換する場合
-
-`xxd`がない場合は、既存の `.venv` のPythonを使えます。
+`xxd -i`の出力をそのまま使わず、シンボル名とリンカセクションを固定したC++配列へ変換します。`xxd`がない場合は、既存の`.venv`のPythonを使えます。
 
 ```powershell
 $Python = ".venv/Scripts/python.exe"
 @'
 from pathlib import Path
 
-source = Path("build/ml/vela/fish_bbox_int8_vela.tflite")
+source = Path("build/ml/yolov5s_256_RGB_train/vela_ra8p1/best-int8_vela.tflite")
 target = Path("app/src/ai/model/fish_bbox_model_data.cc")
 identifier = "g_fish_bbox_model_data"
 data = source.read_bytes()
 lines = [
-    "#include <cstddef>",
-    "#include <cstdint>",
+    '#include "fish_bbox_model_data.hpp"',
     "",
-    "alignas(16) const unsigned char " + identifier + "[] = {",
+    "alignas(16) const std::uint8_t " + identifier + "[] __attribute__((section(\".ospi0_cs1\"), used)) = {",
 ]
 for offset in range(0, len(data), 12):
     row = data[offset:offset + 12]
@@ -570,9 +585,11 @@ target.write_text("\\n".join(lines), encoding="ascii")
 #include <cstddef>
 #include <cstdint>
 
-extern const unsigned char g_fish_bbox_model_data[];
+extern const std::uint8_t g_fish_bbox_model_data[];
 extern const std::size_t g_fish_bbox_model_data_len;
 ```
+
+生成後は、`g_fish_bbox_model_data_len`が7 MiB以下であること、先頭4 bytesがTFLiteヘッダーとして読めること、モデル配列が`.ospi0_cs1`へ配置されていることをリンクマップで確認します。C配列の更新だけでは外部Flashの内容は更新されないため、ビルド後に外部Flash書き込みも実施します。
 
 ## 9. TFLM/Ethos-Uへの組み込み
 
@@ -580,12 +597,11 @@ extern const std::size_t g_fish_bbox_model_data_len;
 
 ```text
 app/src/ai/
-├─ fish_bbox_model.hpp
-├─ fish_bbox_model.cpp
-├─ fish_bbox_preprocess.hpp
-├─ fish_bbox_preprocess.cpp
-├─ fish_bbox_inference.hpp
-├─ fish_bbox_inference.cpp
+├─ fish_bbox_npu_test.cpp
+├─ fish_bbox_camera.cpp
+├─ fish_bbox_display.cpp
+├─ feeding_monitor.cpp
+├─ ospi_model_storage.cpp
 └─ model/
     ├─ fish_bbox_model_data.hpp
     └─ fish_bbox_model_data.cc
@@ -593,10 +609,11 @@ app/src/ai/
 
 役割を混ぜないでください。
 
-- `fish_bbox_preprocess`: 画素形式変換、リサイズ、量子化
-- `fish_bbox_model`: TFLMモデル、resolver、interpreterの初期化
-- `fish_bbox_inference`: 1回の推論、5値出力の解釈、レイテンシ
-- `fish_bbox_model_data`: Vela済みTFLiteのバイト列だけ
+- `fish_bbox_camera`: OV5640/VINフレームの取得、RGB565からRGBへのリサイズ、量子化
+- `fish_bbox_npu_test`: OSPI初期化、SDRAMへのモデルコピー、TFLM/Ethos-U初期化、Invoke、YOLO後処理
+- `ospi_model_storage`: OSPI-Bの1S-1S-1S読み出し設定とCS1マッピング
+- `fish_bbox_model_data`: Vela済みTFLiteのバイト列とモデル長
+- `feeding_monitor`: 餌候補と金魚ボックスを使ったCPU側の給餌状態機械
 
 ### 9.2 FSP設定
 
@@ -624,51 +641,54 @@ Smart Configuratorで、本番の `configuration.xml`へ次のモジュールを
 
 `ARM_NPU`がない場合は、TFLMがCPUで動作する比較用ビルドになります。NPUビルドでは `AddEthosU()` が成功し、`RM_ETHOSU_Open()`も成功することを起動ログで確認します。
 
-### 9.3 NPU初期化
+### 9.3 NPUとモデルメモリの初期化
 
-初期化と終了は1回ずつ行います。
+現行タスクでは、次の順序を崩してはいけません。
 
-```c
-#ifdef ARM_NPU
-fsp_err_t err = RM_ETHOSU_Open(&g_rm_ethosu0_ctrl, &g_rm_ethosu0_cfg);
-if (FSP_SUCCESS != err) {
-    /* エラーを記録して推論を開始しない */
-}
-#endif
+1. `RM_ETHOSU_Open(&g_rm_ethosu0_ctrl, &g_rm_ethosu0_cfg)`を実行する
+2. `fish_bbox_model_storage_start()`でOSPI-Bを開く
+3. `R_XSPI0->LIOCTL_b.RSTCS0`を操作してCS1のSPIメモリマッピングを有効にする
+4. `g_fish_bbox_model_data`とモデル長を読み出す
+5. `copy_model_to_sdram()`で`g_model_sdram_copy`へコピーし、先頭4 bytesと末尾byteを検証する
+6. `tflite::GetModel(g_model_sdram_copy)`を呼び出す
+7. `AllocateTensors()`成功後にカメラと推論ループを開始する
 
-/* model.Init() と推論 */
+SDRAMコントローラ自体は、`hal_warmstart.c`の`BSP_WARM_START_POST_C`で`R_BSP_SdramInit(true)`により初期化されます。OSPI-Bの標準起動フックは`BSP_CFG_OSPI_B_STARTUP_ENABLED == 0`のため、モデルタスク内の`fish_bbox_model_storage_start()`が必要です。`g_model_sdram_copy`は`MicroInterpreter`の生存期間中ずっと有効でなければなりません。
 
-#ifdef ARM_NPU
-RM_ETHOSU_Close(&g_rm_ethosu0_ctrl);
-#endif
-```
+### 9.4 Tensor arenaとモデルコピー領域
 
-顔検出サンプルの `ethos_u55.c` にある `face_detection_entry()` が直接の参考です。エラー処理で `Close`を複数回呼ばないよう、本番コードでは所有権を明確にします。
-
-### 9.4 Tensor arena
-
-顔検出サンプルは `MainLoop.cc`で `0x0080000`、つまり512 KiBのtensor arenaを確保しています。金魚ボックスモデルはもっと小さくできる見込みですが、最初は256 KiB以上で起動し、`arena_used_bytes()`を表示してから縮小します。
+現行実装の容量は、旧サンプルの値や推定値ではなく次の固定値です。
 
 ```cpp
-alignas(16) static uint8_t tensor_arena[256 * 1024];
+constexpr size_t kTensorArenaSize = 1536U * 1024U;
+constexpr size_t kModelCopyCapacity = 7U * 1024U * 1024U;
+alignas(64) uint8_t g_tensor_arena[kTensorArenaSize]
+    __attribute__((section(".sdram_nocache")));
+alignas(64) uint8_t g_model_sdram_copy[kModelCopyCapacity]
+    __attribute__((section(".sdram_nocache")));
 ```
 
-NPUがアクセスするバッファは、キャッシュ属性、アラインメント、SDRAMの可視性を確認します。カメラDMAフレームは必ず `.sdram_noinit_nocache`へ配置します。tensor arenaも、NPUドライバーのキャッシュメンテナンス方針を確認できるまでは、非キャッシュ領域を優先します。
+`g_tensor_arena`は1,536 KiB、`g_model_sdram_copy`は7 MiBです。両方とも非キャッシュSDRAMへ配置し、NPUがアクセスする領域をキャッシュ付きメモリへ置かない構成にしています。カメラDMAフレームは従来どおり`.sdram_noinit_nocache`です。実際の使用量は起動ログの`arena_used_bytes()`で記録します。
 
 ### 9.5 モデルのロード
 
-金魚ボックスモデルの初期化で確認する項目は次です。
+YOLOv5sモデルの初期化で確認する項目は次です。
 
 ```text
-GetModelPointer()      != NULL
-GetModelLen()          > 0
+g_fish_bbox_model_data != NULL
+g_fish_bbox_model_data_len > 0
+g_fish_bbox_model_data_len <= 7 MiB
+g_model_sdram_copy      != NULL
 schema version         == TFLITE_SCHEMA_VERSION
 AllocateTensors()      == kTfLiteOk
 input tensor count     == 1
 output tensor count    == 1
-input type             == kTfLiteInt8
-input shape            == [1, 256, 256, 1]
-output shape           == [1, 5]
+input type             == kTfLiteUInt8
+input shape            == [1, 256, 256, 3]
+input bytes            == 196608
+output type            == kTfLiteUInt8
+output shape           == [1, 4032, 6]
+output bytes           == 24192
 ```
 
 `AllocateTensors()`が失敗した場合は、推論を続けずに次を確認します。
@@ -676,10 +696,11 @@ output shape           == [1, 5]
 1. tensor arenaを増やす
 2. resolverへ不足演算子を追加する
 3. TFLite schemaと組み込みTFLMのバージョンを合わせる
-4. モデル配列のリンクとアラインメントを確認する
-5. Vela前後のモデルを取り違えていないか確認する
+4. 外部FlashのOSPIマッピングとモデルヘッダを確認する
+5. モデル配列のリンク、アラインメント、SDRAMコピーを確認する
+6. Vela前後のモデルを取り違えていないか確認する
 
-## 10. カメラフレームからINT8入力を作る
+## 10. カメラフレームからUINT8入力を作る
 
 ### 10.1 実機での処理経路
 
@@ -689,12 +710,12 @@ OV5640 / MIPI CSI-2
   -> DMA完了通知
   -> 推論タスクへバッファを渡す
   -> RGB565またはYUV422をRGBへ変換
-  -> グレースケール化
-    -> 256x256へリサイズ
-  -> floatの0.0から1.0相当をINT8へ量子化
+    -> 256x192へ縮小し、上下32pxを黒帯にした256x256 RGB letterbox
+    -> floatの0.0から1.0相当をUINT8へ量子化
   -> input tensorへコピー
   -> interpreter->Invoke()
-    -> output tensorからx, y, w, h, confidenceを取得
+        -> output tensorから4032候補×6値を取得
+        -> objectness * class_score、閾値、NMS、中心距離で金魚候補を選択
     -> CPU側で餌候補追跡と状態機械を更新
 ```
 
@@ -702,7 +723,7 @@ DMA ISRの中で `Invoke()`を呼ばないでください。ISRはバッファ�
 
 #### メインアプリのカメラ入力の確認
 
-現在の実装は [fish_bbox_camera.cpp](../app/src/ai/fish_bbox_camera.cpp) です。センサーの1024x600出力をVINで640x480 RGB565へ縮小し、CPUで256x256グレースケールのモデル入力へ変換します。VINバッファの行間隔は2048バイトです。
+現在の実装は [fish_bbox_camera.cpp](../app/src/ai/fish_bbox_camera.cpp) です。センサーの1024x600出力をVINで640x480 RGB565へ縮小し、CPUで上下32pxの黒帯を含む256x256 RGB letterboxへ変換します。VINバッファの行間隔は1280バイトです。RGB各チャンネルを0から255の範囲でリサイズし、モデルの`input_scale`と`input_zero_point`でUINT8へ量子化します。
 
 - OV5640の仮想チャネルは、レジスター`0x4814`を読み、上位2ビットだけを変更します。レジスター全体をゼロにせず、下位6ビットを保持します。これは収集用ファームと同じ手順です。
 - カメラ用I2Cの16ビットレジスターアクセスは、待機の成否に加えて転送コールバックの結果も確認します。NACKなどの通信エラーを初期化成功として扱わないようにします。
@@ -728,17 +749,17 @@ q = round(x / scale) + zero\_point
 $$
 
 $$
-q = clamp(q, -128, 127)
+q = clamp(q, 0, 255)
 $$
 
-ここで、学習時の入力を `x = gray / 255.0` としている場合は、次のようになります。
+ここで、各RGBチャンネルの入力を `x = channel / 255.0` としている場合は、次のようになります。
 
 ```cpp
-float normalized = static_cast<float>(gray) / 255.0f;
+float normalized = static_cast<float>(channel) / 255.0f;
 int32_t quantized = static_cast<int32_t>(std::lround(
     normalized / input_scale)) + input_zero_point;
-quantized = std::clamp(quantized, -128, 127);
-input_data[index] = static_cast<int8_t>(quantized);
+quantized = std::clamp(quantized, 0, 255);
+input_data[index] = static_cast<uint8_t>(quantized);
 ```
 
 `scale`や`zero_point`を固定値でハードコードしないでください。モデルを再学習・再量子化すると変わる可能性があります。起動時に表示した値を、PC側のTFLiteオフライン検証結果と比較します。検出そのものは実機で行います。
@@ -752,10 +773,9 @@ pixel = low_byte | (high_byte << 8)
 R = ((pixel >> 11) & 0x1f) * 255 / 31
 G = ((pixel >> 5)  & 0x3f) * 255 / 63
 B = ( pixel        & 0x1f) * 255 / 31
-gray = 0.299R + 0.587G + 0.114B
 ```
 
-実機のVIN出力がYUV422の場合は、RGB565用の処理を使わず、Y成分をグレースケール入力として使えるかを検討します。ただし、学習時も同じ入力表現へ揃えます。
+このRGB565復号結果を、RGB各チャンネルのままモデル入力へ並べます。グレースケール化してはいけません。実機のVIN出力がYUV422の場合は、RGBへ変換して学習時と同じ3チャンネル表現へ揃えます。
 
 ## 11. 推論結果を給餌イベントへ変換する
 
@@ -806,34 +826,33 @@ FEEDING_COMPLETED
 - 起動ログにテンソル情報が出る
 - NPUとCPUの推論時間を比較できる
 
-### 12.2 本番候補のCMake
+### 12.2 本番アプリのビルド
 
-FSP 6.4.0/GCC側の基本コマンドは次です。
+現行の`app`はFSP生成済みのMakeプロジェクトです。ワークスペースルートから次のコマンドで`app/Debug/app.elf`とリンクマップを生成します。
 
 ```powershell
-$env:ARM_GCC_TOOLCHAIN_PATH = 'C:/Program Files (x86)/Arm GNU Toolchain arm-none-eabi/13.2 Rel1/bin'
-cmake -S test -B test/build/Debug `
-    -G Ninja `
-    -DCMAKE_BUILD_TYPE=Debug `
-    -DCMAKE_TOOLCHAIN_FILE=test/cmake/gcc.cmake `
-    -DARM_TOOLCHAIN_PATH="$env:ARM_GCC_TOOLCHAIN_PATH"
-cmake --build test/build/Debug --parallel 8
+Push-Location app
+& D:\MinGW\bin\mingw32-make.exe -C Debug -j1 all
+Pop-Location
 ```
 
-`app/`は現時点で空のため、本番AIファームウェアのビルドコマンドはまだ確定していません。`app`のFSPプロジェクトを作成した後、`test`のCMake構成と比較して決めます。
+ビルド時にはArm GNU Toolchain 13.3 rel1と、`app/.vscode/tasks.json`に定義されたMIPI-CSI/VINのインクルードパスを使用します。ビルド後は`app/Debug/app.map`で、モデルが`0x90000000`の`.ospi0_cs1`に置かれていること、`g_tensor_arena`と`g_model_sdram_copy`がSDRAM非キャッシュ領域に置かれていることを確認します。
 
 ### 12.3 実機操作の順序
 
-1. PC上でモデルをTFLite、Vela、C配列の順に生成する
-2. C配列のサイズとSHA-256を記録する
-3. FSP設定を再生成する
-4. GCCでビルドする
-5. ELF/SRECのサイズとリンクマップを確認する
-6. J-Linkで書き込む
-7. 起動ログでschema、dtype、shape、arena、演算子、NPU初期化を確認する
-8. 既知画像または既知フレームを実機へ入力して推論する
-9. カメラDMAを接続する
-10. 実フレームの前処理と実機の推論結果を、PCのTFLiteオフライン評価結果と比較する
+1. PC上でYOLOv5sのUINT8 TFLiteを生成する
+2. Velaで最適化し、`best-int8_vela.tflite`を生成する
+3. モデルを`.ospi0_cs1`属性付きC++配列へ変換する
+4. C配列のサイズ、SHA-256、入力・出力テンソル契約を記録する
+5. GCCで`app/Debug/app.elf`をビルドする
+6. リンクマップでモデルの配置先が`0x90000000`、サイズが容量内であることを確認する
+7. J-Link/e2 studioの外部Flash書き込み機能で、OSPI0 CS1の`0x90000000`へモデル領域を書き込む
+8. 内部Flashへファームウェアを書き込み、リセットする
+9. 起動ログでOSPI初期化、モデルヘッダ、SDRAMコピー、schema、dtype、shape、arena、NPU初期化を確認する
+10. `fish_bbox_camera_start()`後、実カメラフレームで推論する
+11. 実フレームの前処理と実機の推論結果を、PCのTFLiteオフライン評価結果と比較する
+
+`app/app Debug_Flat.launch`の現行設定は内部メモリのdownload imageが中心で、外部Flash用のdownload module/destination欄は空です。したがって、OSPI0 CS1への書き込みが有効になっているかをe2 studio側で確認し、未設定の場合は外部Flash programmerまたは対応するJ-Link設定でモデル領域を別途書き込みます。`app/script/RA8x1_Reset_OSPI.JLinkScript`はOSPI関連レジスターをリセット前に準備するスクリプトであり、モデルバイト列の書き込み処理そのものではありません。
 
 ユーザーが実機操作を明示的に依頼していない場合は、フラッシュやCDC受信を自動では実行しません。
 
@@ -845,7 +864,7 @@ cmake --build test/build/Debug --parallel 8
 - [ ] `fish_visible=0`のフレームを学習・評価から分離した
 - [ ] 金魚ボックスと餌軌跡の件数・セッション数を確認した
 - [ ] floatモデルのIoU、中心位置誤差、confidenceを記録した
-- [ ] Full INT8モデルの同じ指標を記録した
+- [ ] Full量子化モデル（実機入出力はUINT8）の同じ指標を記録した
 - [ ] 代表データが魚の位置、反射、照明変化を含む
 - [ ] TFLiteの入力dtype、shape、scale、zero pointを記録した
 - [ ] 必要に応じて、Vela前後のモデルのオフライン整合性を確認した（実機検出の代替にはしない）
@@ -855,15 +874,18 @@ cmake --build test/build/Debug --parallel 8
 
 - [ ] `ARM_NPU`がC/C++両方で定義されている
 - [ ] `RM_ETHOSU_Open()`が1回成功する
+- [ ] `fish_bbox_model_storage_start()`が成功し、OSPI0 CS1のモデルヘッダを読める
+- [ ] 外部Flashの`0x90000000`に最新C配列のモデルが書き込まれている
+- [ ] `g_model_sdram_copy`へのコピーが成功し、7 MiB容量を超えていない
 - [ ] `AddEthosU()`が成功する
 - [ ] `AllocateTensors()`が成功する
-- [ ] 起動ログの入力shape/dtypeがPC側と一致する
+- [ ] 起動ログの入力`[1, 256, 256, 3]`/`uint8`、出力`[1, 4032, 6]`/`uint8`がPC側と一致する
 - [ ] 起動ログの量子化パラメータがPC側と一致する
 - [ ] `arena_used_bytes()`を記録している
 - [ ] カメラDMAバッファが`.sdram_noinit_nocache`にある
 - [ ] DMA ISRで推論していない
 - [ ] `Invoke()`のレイテンシをGPTまたはサイクルカウンタで測定した
-- [ ] NPU実行とCPU実行の結果が一致する
+- [ ] NPU実行とPC側UINT8モデルの結果を同一フレームで比較している
 - [ ] 5 fps入力でフレーム取りこぼし数を記録している
 - [ ] 実機LCDに金魚枠、餌候補、状態を表示して目視確認できる
 - [ ] 最終給餌からの経過時間と未給餌アラートをLCDに表示できる
@@ -882,6 +904,9 @@ cmake --build test/build/Debug --parallel 8
 | 症状 | 最初に見る場所 | 対処 |
 |---|---|---|
 | 指定サンプルが見つからない | Git履歴、外部リポジトリ | 現在は存在未確認。顔検出サンプルを基準にする |
+| モデルヘッダが`00`や不正値になる | 外部Flash書き込み、`0x90000000`、OSPI CS1マッピング | 最新ELFのモデル領域をOSPI0 CS1へ書き込み、`fish_bbox_model_storage_start()`のログを確認する |
+| `Model SDRAM copy failed`になる | `g_fish_bbox_model_data_len`、SDRAM初期化、OSPI読み出し | モデル長が7 MiB以下か、SDRAMが`R_BSP_SdramInit(true)`で初期化済みか確認する |
+| `Unexpected model tensor contract`になる | TFLite input/output shape、dtype、モデル版 | `[1,256,256,3]`/`uint8`と`[1,4032,6]`/`uint8`のモデルを生成し直す |
 | `Model schema version`エラー | TFLMとTFLiteのバージョン | 同じ変換環境で再生成する |
 | `AllocateTensors()`失敗 | arena、resolver、モデル | arena拡大、演算子追加、モデル再確認 |
 | `AddEthosU()`失敗 | FSP設定、`ARM_NPU`、リンク | `rm_ethosu`とcore driverを再生成する |
@@ -891,7 +916,7 @@ cmake --build test/build/Debug --parallel 8
 | NPU実行時に画像が崩れる | SDRAMキャッシュ、DMAバッファ | `.sdram_noinit_nocache`、アラインメント、バッファ所有権を確認する |
 | メモリ不足 | モデル、arena、スタック | モデルを小さくする、SDRAM/OSPI配置、arena実使用量を測る |
 | 実機だけ精度が違う | RGB565/YUV変換、リサイズ | 同一フレームをPCと実機で各段階比較する |
-| 5 fpsに追いつかない | `Invoke()`、コピー、JPEG | 推論周期を下げる、前処理を最適化、モデルを縮小する |
+| 5 fpsに追いつかない | `Invoke()`、RGBリサイズ、SDRAM配置 | 推論周期を下げる、前処理を最適化、モデルとバッファの配置を確認する |
 
 ## 15. 実装の完了条件
 
@@ -899,15 +924,16 @@ cmake --build test/build/Debug --parallel 8
 
 1. 給餌マーカーを含む複数セッションを収集する
 2. セッション単位のtrain/validation/testを作る
-3. 256x256グレースケール金魚ボックス回帰モデルを学習する
-4. Full INT8 TFLiteへ変換する
-5. PC上でfloat/INT8/Vela済みの結果をオフライン比較する
-6. Vela済みモデルをC配列化する
-7. FSP 6.4.0/GCCの本番候補へTFLMとEthos-Uを組み込む
-8. 実機起動ログでテンソル情報とアリーナ使用量を確認する
-9. 実機の実カメラフレームを同じ前処理で推論する
-10. NPUレイテンシ、フレーム欠落、box IoU、誤完了率を記録する
-11. 餌追跡と金魚ボックスを状態機械へ接続し、給餌完了または `unknown` を出力する
+3. 256x256 RGBのYOLOv5s金魚検出モデルを学習する
+4. 入出力UINT8のFull量子化TFLiteへ変換する
+5. PC上でfloat/量子化/Vela済みの結果をオフライン比較する
+6. Vela済みモデルを`.ospi0_cs1`のC配列へ変換する
+7. FSP 6.4.0/GCCで本番アプリをビルドする
+8. モデルを外部FlashのOSPI0 CS1へ書き込む
+9. 実機起動時にモデルをSDRAMへコピーし、テンソル情報とアリーナ使用量を確認する
+10. 実機の実カメラフレームを同じRGB前処理で推論する
+11. NPUレイテンシ、フレーム欠落、box IoU、誤完了率を記録する
+12. 餌追跡と金魚ボックスを状態機械へ接続し、給餌完了または `unknown` を出力する
 
 ## 16. 参照ファイル
 
