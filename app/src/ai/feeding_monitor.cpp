@@ -17,6 +17,7 @@ constexpr float kMinimumSinkSpeed = 8.0f;
 constexpr float kMaximumSinkSpeed = 220.0f;
 constexpr float kMaximumHorizontalSpeed = 100.0f;
 constexpr float kFishNearDistance = 100.0f;
+constexpr float kMinimumApproachDisplacement = 4.0f;
 
 struct Component
 {
@@ -42,6 +43,29 @@ float squared_distance(float first_x, float first_y, float second_x, float secon
     const float delta_x = first_x - second_x;
     const float delta_y = first_y - second_y;
     return delta_x * delta_x + delta_y * delta_y;
+}
+
+bool moved_toward(float previous_x, float previous_y, float current_x, float current_y,
+                  float target_x, float target_y)
+{
+    const float movement_x = current_x - previous_x;
+    const float movement_y = current_y - previous_y;
+    const float target_delta_x = target_x - current_x;
+    const float target_delta_y = target_y - current_y;
+    return movement_x * movement_x + movement_y * movement_y >=
+               kMinimumApproachDisplacement * kMinimumApproachDisplacement &&
+           movement_x * target_delta_x + movement_y * target_delta_y > 0.0f;
+}
+
+bool food_overlaps_fish(const FoodObservation &food, const FishObservation &fish)
+{
+    const float fish_left = fish.x * kSourceWidth;
+    const float fish_top = fish.y * kSourceHeight;
+    const float fish_right = (fish.x + fish.width) * kSourceWidth;
+    const float fish_bottom = (fish.y + fish.height) * kSourceHeight;
+    const float food_radius = std::max(4.0f, std::sqrt(static_cast<float>(food.area)) * 0.5f);
+    return food.x + food_radius >= fish_left && food.x - food_radius <= fish_right &&
+           food.y + food_radius >= fish_top && food.y - food_radius <= fish_bottom;
 }
 
 float temporal_association_distance(uint32_t elapsed_ms)
@@ -296,11 +320,31 @@ FoodObservation FeedingMonitor::detect_food(const uint8_t *rgb565, size_t stride
 FeedingMonitorResult FeedingMonitor::process(const uint8_t *rgb565, size_t stride_bytes,
                                              uint32_t monotonic_ms, const FishObservation &fish)
 {
+    const bool was_food_confirmed = food_confirmed_;
+    const bool had_food_track = has_track_;
+    const FoodObservation previous_food = tracked_food_;
     bool scene_valid = false;
     const uint32_t elapsed_ms = has_previous_frame_ ? monotonic_ms - previous_frame_ms_ : 0U;
     FoodObservation food = detect_food(rgb565, stride_bytes, elapsed_ms, &scene_valid);
     previous_frame_ms_ = monotonic_ms;
     bool completed = false;
+    auto complete_feeding = [&]() {
+        state_ = FeedingState::FeedingCompleted;
+        completed = true;
+        last_feeding_monotonic_ms_ = monotonic_ms;
+        has_last_feeding_monotonic_ = true;
+        if (wall_clock_valid_)
+        {
+            last_feeding_unix_ms_ = current_unix_time(monotonic_ms);
+            has_last_feeding_time_ = true;
+        }
+        has_track_ = false;
+        food_confirmed_ = false;
+        consecutive_sink_steps_ = 0U;
+        fish_was_approaching_ = false;
+        previous_fish_distance_ = 0.0f;
+        has_previous_fish_position_ = false;
+    };
 
     if (!scene_valid || (!fish.valid && (food_confirmed_ || state_ == FeedingState::EatingCandidate)))
     {
@@ -341,12 +385,24 @@ FeedingMonitorResult FeedingMonitor::process(const uint8_t *rgb565, size_t strid
             const float fish_x = (fish.x + fish.width * 0.5f) * kSourceWidth;
             const float fish_y = (fish.y + fish.height * 0.5f) * kSourceHeight;
             const float distance = std::sqrt(squared_distance(food.x, food.y, fish_x, fish_y));
-            if (previous_fish_distance_ > 0.0f && distance + 4.0f < previous_fish_distance_)
+            const bool fish_moving_toward_food = has_previous_fish_position_ &&
+                moved_toward(previous_fish_x_, previous_fish_y_, fish_x, fish_y, food.x, food.y);
+            const bool food_moving_toward_fish = was_food_confirmed && had_food_track &&
+                moved_toward(previous_food.x, previous_food.y, food.x, food.y, fish_x, fish_y);
+            if (previous_fish_distance_ > 0.0f && distance + kMinimumApproachDisplacement < previous_fish_distance_ &&
+                (fish_moving_toward_food || food_moving_toward_fish))
             {
                 fish_was_approaching_ = true;
                 state_ = FeedingState::FishApproaching;
             }
             previous_fish_distance_ = distance;
+            if (was_food_confirmed && fish_was_approaching_ && food_overlaps_fish(food, fish))
+            {
+                complete_feeding();
+            }
+            previous_fish_x_ = fish_x;
+            previous_fish_y_ = fish_y;
+            has_previous_fish_position_ = true;
         }
     }
     else if (food_confirmed_ && fish.valid && fish_was_approaching_ &&
@@ -359,19 +415,7 @@ FeedingMonitorResult FeedingMonitor::process(const uint8_t *rgb565, size_t strid
         }
         else if (monotonic_ms - disappearance_start_ms_ >= config_.disappearance_confirm_ms)
         {
-            state_ = FeedingState::FeedingCompleted;
-            completed = true;
-            last_feeding_monotonic_ms_ = monotonic_ms;
-            has_last_feeding_monotonic_ = true;
-            if (wall_clock_valid_)
-            {
-                last_feeding_unix_ms_ = current_unix_time(monotonic_ms);
-                has_last_feeding_time_ = true;
-            }
-            has_track_ = false;
-            food_confirmed_ = false;
-            consecutive_sink_steps_ = 0U;
-            fish_was_approaching_ = false;
+            complete_feeding();
         }
     }
     else if (has_track_ && monotonic_ms - last_track_ms_ > config_.tracking_timeout_ms)
@@ -381,10 +425,17 @@ FeedingMonitorResult FeedingMonitor::process(const uint8_t *rgb565, size_t strid
         food_confirmed_ = false;
         consecutive_sink_steps_ = 0U;
         fish_was_approaching_ = false;
+        previous_fish_distance_ = 0.0f;
+        has_previous_fish_position_ = false;
     }
     else if (!has_track_)
     {
         state_ = FeedingState::Idle;
+    }
+
+    if (!fish.valid)
+    {
+        has_previous_fish_position_ = false;
     }
 
     FeedingMonitorResult monitor_result = result(monotonic_ms);

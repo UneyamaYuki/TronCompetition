@@ -96,6 +96,9 @@ private:
     uint32_t previous_frame_ms_ = 0U;
     uint32_t last_track_ms_ = 0U;
     uint32_t disappearance_start_ms_ = 0U;
+    bool has_previous_fish_position_ = false;
+    float previous_fish_x_ = 0.0f;
+    float previous_fish_y_ = 0.0f;
     uint32_t last_feeding_monotonic_ms_ = 0U;
     uint32_t wall_clock_base_ms_ = 0U;
     uint64_t wall_clock_base_unix_ms_ = 0U;
